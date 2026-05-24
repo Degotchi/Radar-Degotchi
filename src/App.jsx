@@ -1,6 +1,5 @@
 import {
   Activity,
-  ArrowUpRight,
   Bot,
   CheckCircle2,
   Clock3,
@@ -8,12 +7,10 @@ import {
   FileText,
   Flame,
   Layers3,
-  LockKeyhole,
   MessageSquareText,
   Search,
   Settings2,
   ShieldCheck,
-  Sparkles,
   TrendingUp,
   X
 } from "lucide-react";
@@ -198,26 +195,33 @@ function HomePage({
   onExplain,
   onRecompute
 }) {
-  const topEvent = events[0] ?? snapshot.events[0];
-  const importantEvents = snapshot.events.filter((event) => event.selected).slice(0, 3);
+  const latestEvent = snapshot.events[0];
   const categories = ["全部", "正在升温", "持续观察", ...new Set(snapshot.events.map((event) => event.category))];
 
   return (
-    <main className="home-page">
-      <HeroBrief snapshot={snapshot} topEvent={topEvent} importantEvents={importantEvents} onRecompute={onRecompute} />
+    <main className="home-page feed-page">
+      <section className="feed-hero">
+        <div>
+          <p className="eyebrow">AI / 科技 24h Feed</p>
+          <h1>像刷动态一样看今天的 AI 热点</h1>
+          <p>先看最热事件，再顺着卡片扫过摘要、看点、来源和可信度。</p>
+        </div>
+        <div className="feed-hero-actions">
+          <span>最近更新 {latestEvent ? formatTime(latestEvent.lastSeenAt) : "刚刚"}</span>
+          <button className="secondary-action" onClick={onRecompute}>
+            <Activity size={16} />
+            重新整理
+          </button>
+        </div>
+      </section>
 
-      <section className="home-layout">
-        <div className="content-column">
-          <TrustStrip snapshot={snapshot} />
-
-          <TopEventCard event={topEvent} onOpenEvent={onOpenEvent} onExplain={onExplain} />
-
-          <section className="event-section">
-            <SectionTitle
-              eyebrow="Hot Events"
-              title="今天值得看的 AI/科技热点"
-              caption="每条都是聚合后的事件，不是单条资讯标题。"
-            />
+      <section className="feed-layout">
+        <section className="feed-main">
+          <div className="feed-toolbar">
+            <div>
+              <strong>{events.length} 条热点</strong>
+              <span>按热度排序，聚合后展示</span>
+            </div>
             <div className="filter-pills">
               {categories.map((category) => (
                 <button key={category} className={briefFilter === category ? "active" : ""} onClick={() => setBriefFilter(category)}>
@@ -225,13 +229,15 @@ function HomePage({
                 </button>
               ))}
             </div>
-            <EventFeed events={events} onOpenEvent={onOpenEvent} onExplain={onExplain} />
-          </section>
-        </div>
+          </div>
+          <EventFeed events={events} onOpenEvent={onOpenEvent} onExplain={onExplain} />
+        </section>
 
-        <aside className="side-column">
-          <BriefEntry brief={snapshot.dailyBrief} onOpenEvent={onOpenEvent} />
+        <aside className="feed-rail">
+          <FeedStats snapshot={snapshot} />
+          <ScoreLegend />
           <TrendSection events={snapshot.events} />
+          <BriefEntry brief={snapshot.dailyBrief} onOpenEvent={onOpenEvent} />
           <SearchSuggestion query={query} setQuery={setQuery} />
         </aside>
       </section>
@@ -239,75 +245,44 @@ function HomePage({
   );
 }
 
-function HeroBrief({ snapshot, topEvent, importantEvents, onRecompute }) {
-  const latestUpdate = topEvent ? formatTime(topEvent.lastSeenAt) : "刚刚";
+function FeedStats({ snapshot }) {
   return (
-    <section className="hero-brief">
-      <div className="hero-copy">
-        <p className="eyebrow">AI / 科技热点 24 小时</p>
-        <h1>用 3 分钟看懂过去 24 小时真正重要的事</h1>
-        <p className="hero-lead">
-          自动把多平台信号聚合成事件，先告诉你发生了什么，再解释为什么值得关注。
-        </p>
-        <div className="hero-actions">
-          <a href="#events" className="primary-action">
-            开始阅读
-            <ArrowUpRight size={16} />
-          </a>
-          <button className="secondary-action" onClick={onRecompute}>
-            <Activity size={16} />
-            重新整理
-          </button>
-        </div>
-      </div>
-
-      <div className="hero-panel">
-        <div className="today-status">
-          <span>今日态势</span>
-          <strong>{snapshot.metrics.rising} 个事件正在升温</strong>
-          <small>最近更新 {latestUpdate}</small>
-        </div>
-        <div className="today-three">
-          <p>今日 3 件大事</p>
-          {importantEvents.map((event, index) => (
-            <article key={event.id}>
-              <span>{index + 1}</span>
-              <strong>{event.title}</strong>
-            </article>
-          ))}
-        </div>
-        <div className="hero-metrics">
-          <Metric label="原始信号" value={snapshot.metrics.rawItems} />
-          <Metric label="聚合事件" value={snapshot.metrics.events} />
-          <Metric label="精选入选" value={snapshot.metrics.selected} />
-        </div>
+    <section className="side-card feed-stats">
+      <SectionTitle eyebrow="Snapshot" title="今日概览" caption="过去 24 小时" compact />
+      <div className="feed-stat-grid">
+        <Metric label="原始信号" value={snapshot.metrics.rawItems} />
+        <Metric label="聚合事件" value={snapshot.metrics.events} />
+        <Metric label="精选入选" value={snapshot.metrics.selected} />
+        <Metric label="正在升温" value={snapshot.metrics.rising} />
       </div>
     </section>
   );
 }
 
-function TopEventCard({ event, onOpenEvent, onExplain }) {
-  if (!event) return null;
+function ScoreLegend() {
   return (
-    <section className="top-event-card" id="events">
-      <div className="top-event-meta">
-        <Tag tone={categoryTone[event.category]}>{event.category}</Tag>
-        <TrustBadge event={event} />
-        <span>{trendText(event.trend)}</span>
+    <section className="side-card score-legend">
+      <SectionTitle eyebrow="Scores" title="评分看板" caption="热度、精选、可信三项合看。" compact />
+      <div>
+        <span>
+          <Flame size={15} />
+          热度
+        </span>
+        <p>传播速度、跨平台覆盖、互动和新鲜度。</p>
       </div>
-      <h2>{event.title}</h2>
-      <p>{event.summary}</p>
-      <div className="why-box">
-        <strong>为什么重要</strong>
-        <span>{event.whyItMatters}</span>
+      <div>
+        <span>
+          <CheckCircle2 size={15} />
+          精选
+        </span>
+        <p>重要性、新鲜度、可操作性和受众匹配。</p>
       </div>
-      <EvidenceLine event={event} />
-      <div className="card-actions">
-        <button onClick={() => onOpenEvent(event.id)}>查看证据</button>
-        <button className="ghost" onClick={() => onExplain(event.id)}>
-          <Bot size={16} />
-          AI 分析
-        </button>
+      <div>
+        <span>
+          <ShieldCheck size={15} />
+          可信
+        </span>
+        <p>来源等级、官方程度和交叉验证情况。</p>
       </div>
     </section>
   );
@@ -319,33 +294,86 @@ function EventFeed({ events, onOpenEvent, onExplain }) {
   }
   return (
     <div className="event-feed">
-      {events.map((event) => (
-        <EventCard key={event.id} event={event} onOpenEvent={onOpenEvent} onExplain={onExplain} />
+      {events.map((event, index) => (
+        <EventCard key={event.id} event={event} rank={index + 1} onOpenEvent={onOpenEvent} onExplain={onExplain} />
       ))}
     </div>
   );
 }
 
-function EventCard({ event, onOpenEvent, onExplain }) {
+function EventCard({ event, rank, onOpenEvent, onExplain }) {
+  const previewSources = event.sources.slice(0, 3);
   return (
-    <article className="event-card">
-      <div className="event-card-head">
-        <Tag tone={categoryTone[event.category]}>{event.category}</Tag>
-        <TrustBadge event={event} />
-        <span className="update-text">{formatTime(event.lastSeenAt)}</span>
-      </div>
-      <button className="event-title-button" onClick={() => onOpenEvent(event.id)}>
-        {event.title}
-      </button>
-      <p>{event.summary}</p>
-      <div className="event-why">
-        <MessageSquareText size={15} />
-        <span>{event.whyItMatters}</span>
-      </div>
-      <EvidenceLine event={event} compact />
-      <div className="event-card-actions">
-        <button onClick={() => onOpenEvent(event.id)}>展开详情</button>
-        <button onClick={() => onExplain(event.id)}>AI 分析</button>
+    <article className={`event-card feed-card ${event.trend}`}>
+      <aside className="score-rail" aria-label={`${event.title} 评分`}>
+        <span className="rank-mark">#{rank}</span>
+        <div className={`score-ring ${scoreTone(event.hotScore)}`}>
+          <strong>{event.hotScore}</strong>
+          <span>热度</span>
+        </div>
+        <div className="mini-score">
+          <span>精选</span>
+          <strong>{event.selectedScore}</strong>
+        </div>
+        <div className="mini-score">
+          <span>可信</span>
+          <strong>{event.confidence}</strong>
+        </div>
+      </aside>
+
+      <div className="feed-card-body">
+        <div className="event-card-head">
+          <Tag tone={categoryTone[event.category]}>{event.category}</Tag>
+          <span className={`trend-chip ${event.trend}`}>{trendText(event.trend)}</span>
+          <TrustBadge event={event} />
+          <span className="update-text">{formatTime(event.lastSeenAt)}</span>
+        </div>
+        <button className="event-title-button" onClick={() => onOpenEvent(event.id)}>
+          {event.title}
+        </button>
+        <p className="content-preview">{event.summary}</p>
+        <div className="event-why">
+          <MessageSquareText size={15} />
+          <span>{event.whyItMatters}</span>
+        </div>
+        <div className="entity-row">
+          {event.entities.map((entity) => (
+            <span key={entity}>{entity}</span>
+          ))}
+        </div>
+        <div className="source-preview">
+          <div>
+            <Database size={15} />
+            <strong>{event.sources.length} 个信源</strong>
+          </div>
+          {previewSources.map((source) => (
+            <span key={source.id}>{source.name}</span>
+          ))}
+        </div>
+        <div className="score-bars">
+          {Object.entries(event.scoreFactors)
+            .slice(0, 3)
+            .map(([key, factor]) => (
+              <div key={key}>
+                <span>{factor.label}</span>
+                <i>
+                  <b style={{ width: `${clamp(factor.value)}%` }} />
+                </i>
+                <strong>{factor.value}</strong>
+              </div>
+            ))}
+        </div>
+        <EvidenceLine event={event} compact />
+        <div className="event-card-actions">
+          <button onClick={() => onOpenEvent(event.id)}>
+            <FileText size={15} />
+            展开详情
+          </button>
+          <button onClick={() => onExplain(event.id)}>
+            <Bot size={15} />
+            AI 分析
+          </button>
+        </div>
       </div>
     </article>
   );
@@ -450,23 +478,6 @@ function EventDrawer({ event, onClose, onExplain, llmState }) {
         </section>
       </aside>
     </div>
-  );
-}
-
-function TrustStrip({ snapshot }) {
-  return (
-    <section className="trust-strip">
-      <div>
-        <ShieldCheck size={18} />
-        <strong>可信度不是一个分数，而是来源结构</strong>
-        <span>首页会把来源层级和交叉验证情况翻译成更容易理解的可信提示。</span>
-      </div>
-      <div className="trust-items">
-        <span>高可信 {snapshot.metrics.highTrust}</span>
-        <span>多源验证 {snapshot.metrics.selected}</span>
-        <span>持续观察 {snapshot.dailyBrief.watchList.length}</span>
-      </div>
-    </section>
   );
 }
 
@@ -737,6 +748,12 @@ function trendText(trend) {
     volatile: "持续观察",
     steady: "稳定传播"
   }[trend] ?? trend;
+}
+
+function scoreTone(score) {
+  if (score >= 78) return "hot";
+  if (score >= 68) return "warm";
+  return "cool";
 }
 
 function formatTime(value) {
