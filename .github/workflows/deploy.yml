@@ -80,6 +80,42 @@ jobs:
             sleep 8
           done
 
+      - name: Write runtime env
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+          SF_BASE_URL: ${{ secrets.SF_BASE_URL }}
+          SF_API_KEY: ${{ secrets.SF_API_KEY }}
+          SF_MODEL: ${{ secrets.SF_MODEL }}
+        run: |
+          set -euo pipefail
+          SSH_OPTS="-i ~/.ssh/radar_deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -p $DEPLOY_PORT"
+          tmp_env="$(mktemp)"
+          chmod 600 "$tmp_env"
+          {
+            printf '%s\n' 'NODE_ENV=production'
+            printf '%s\n' 'PORT=8787'
+            runtime_base_url="${LLM_BASE_URL:-${SF_BASE_URL:-}}"
+            runtime_api_key="${LLM_API_KEY:-${SF_API_KEY:-}}"
+            runtime_model="${LLM_MODEL:-${SF_MODEL:-deepseek-chat}}"
+            if [ -n "$runtime_base_url" ]; then
+              printf 'LLM_BASE_URL=%s\n' "$runtime_base_url"
+            fi
+            if [ -n "$runtime_api_key" ]; then
+              printf 'LLM_API_KEY=%s\n' "$runtime_api_key"
+            fi
+            printf 'LLM_MODEL=%s\n' "$runtime_model"
+          } > "$tmp_env"
+          for attempt in 1 2 3; do
+            scp $SSH_OPTS "$tmp_env" "$DEPLOY_USER@$DEPLOY_HOST:/opt/radar/.env" && break
+            sleep 8
+          done
+          rm -f "$tmp_env"
+
       - name: Restart service
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
