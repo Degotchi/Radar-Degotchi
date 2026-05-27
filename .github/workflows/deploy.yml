@@ -129,14 +129,14 @@ jobs:
             set -euo pipefail
             cd /opt/radar
             npm ci --omit=dev
+            node -e "const dotenv=require('dotenv'); dotenv.config({path:'/opt/radar/.env'}); const missing=['LLM_BASE_URL','LLM_API_KEY','LLM_MODEL'].filter((key)=>!process.env[key]); if(missing.length){console.error('missing runtime env: '+missing.join(', ')); process.exit(1)} console.log('runtime env present: LLM_BASE_URL, LLM_API_KEY, LLM_MODEL')"
             if pm2 describe ainews >/dev/null 2>&1; then
               pm2 delete ainews || true
             fi
             if pm2 describe radar >/dev/null 2>&1; then
-              pm2 restart radar --update-env
-            else
-              pm2 start ecosystem.config.cjs --env production
+              pm2 delete radar || true
             fi
+            pm2 start ecosystem.config.cjs --env production
             pm2 save
             proxy_dir="/var/lib/docker/volumes/degotchi_npm_data/_data/nginx/proxy_host"
             mkdir -p "$proxy_dir"
@@ -203,7 +203,7 @@ jobs:
               docker exec de_npm nginx -t
               docker exec de_npm nginx -s reload
             fi
-            curl -fsS http://127.0.0.1:8787/api/health >/dev/null
+            curl -fsS http://127.0.0.1:8787/api/health | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{const h=JSON.parse(s); if(!h.modelConfigured){console.error('modelConfigured=false'); process.exit(1)} console.log('health ok: modelConfigured=true')})"
           REMOTE
             sleep 8
           done
