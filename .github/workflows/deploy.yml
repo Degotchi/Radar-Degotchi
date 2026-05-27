@@ -93,12 +93,56 @@ jobs:
             set -euo pipefail
             cd /opt/radar
             npm ci --omit=dev
+            if pm2 describe ainews >/dev/null 2>&1; then
+              pm2 delete ainews || true
+            fi
             if pm2 describe radar >/dev/null 2>&1; then
               pm2 restart radar --update-env
             else
               pm2 start ecosystem.config.cjs --env production
             fi
             pm2 save
+            proxy_dir="/var/lib/docker/volumes/degotchi_npm_data/_data/nginx/proxy_host"
+            mkdir -p "$proxy_dir"
+            {
+              printf '%s\n' '# ------------------------------------------------------------'
+              printf '%s\n' '# radar.degotchi.com'
+              printf '%s\n' '# ------------------------------------------------------------'
+              printf '%s\n' ''
+              printf '%s\n' 'server {'
+              printf '%s\n' '  set $forward_scheme http;'
+              printf '%s\n' '  set $server         "172.17.0.1";'
+              printf '%s\n' '  set $port           8787;'
+              printf '%s\n' ''
+              printf '%s\n' '  listen 80;'
+              printf '%s\n' '  listen [::]:80;'
+              printf '%s\n' ''
+              printf '%s\n' '  server_name radar.degotchi.com;'
+              printf '%s\n' '  http2 on;'
+              printf '%s\n' ''
+              printf '%s\n' '  include conf.d/include/letsencrypt-acme-challenge.conf;'
+              printf '%s\n' '  include conf.d/include/block-exploits.conf;'
+              printf '%s\n' ''
+              printf '%s\n' '  client_max_body_size 20m;'
+              printf '%s\n' '  proxy_read_timeout 300s;'
+              printf '%s\n' '  proxy_send_timeout 300s;'
+              printf '%s\n' ''
+              printf '%s\n' '  access_log /data/logs/proxy-host-7_access.log proxy;'
+              printf '%s\n' '  error_log /data/logs/proxy-host-7_error.log warn;'
+              printf '%s\n' ''
+              printf '%s\n' '  location / {'
+              printf '%s\n' '    proxy_set_header Upgrade $http_upgrade;'
+              printf '%s\n' '    proxy_set_header Connection $http_connection;'
+              printf '%s\n' '    proxy_http_version 1.1;'
+              printf '%s\n' '    include conf.d/include/proxy.conf;'
+              printf '%s\n' '  }'
+              printf '%s\n' '}'
+            } > "$proxy_dir/7.conf"
+            if docker ps --format '{{.Names}}' | grep -qx 'de_npm'; then
+              docker exec de_npm nginx -t
+              docker exec de_npm nginx -s reload
+            fi
+            curl -fsS http://127.0.0.1:8787/api/health >/dev/null
           REMOTE
             sleep 8
           done
