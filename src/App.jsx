@@ -1,20 +1,21 @@
 import {
-  BookOpen,
   CheckCircle2,
   Clock3,
   Database,
-  FileText,
   Layers3,
   ExternalLink,
+  MessageSquare,
   Search,
   ShieldCheck,
   TrendingUp,
   X
 } from "lucide-react";
+import { motion, useScroll, useSpring, useTransform } from "motion/react";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { events as mockEvents, jobs as mockJobs, rawItems as mockRawItems, rules as mockRules, sources as mockSources } from "./data/mockData.js";
 import { buildSnapshot } from "./lib/scoring.js";
-import degotchiMarkUrl from "./assets/degotchi-mark-tight.png";
+import degotchiMarkUrl from "./assets/degotchi-mark-black.png";
 
 const fallbackSnapshot = buildSnapshot({
   events: mockEvents,
@@ -33,10 +34,14 @@ const categoryTone = {
   "技巧与观点": "slate"
 };
 
+const MotionDiv = motion.div;
+const MotionSpan = motion.span;
+
 const routeByView = {
   home: "/",
   brief: "/brief",
   sources: "/sources",
+  feedback: "/feedback",
   admin: "/admin"
 };
 
@@ -64,6 +69,7 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [briefFilter, setBriefFilter] = useState("全部");
   const [selectedEventId, setSelectedEventId] = useState(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(() => window.location.pathname === routeByView.feedback);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
   const [themeMode, setThemeMode] = useState(loadThemeMode);
@@ -139,6 +145,7 @@ export default function App() {
   useEffect(() => {
     function handlePopState() {
       setCurrentPath(window.location.pathname);
+      setFeedbackOpen(window.location.pathname === routeByView.feedback);
       setSelectedEventId(null);
     }
     window.addEventListener("popstate", handlePopState);
@@ -204,12 +211,25 @@ export default function App() {
     if (nextPath === window.location.pathname) return;
     window.history.pushState(null, "", nextPath);
     setCurrentPath(nextPath);
+    setFeedbackOpen(nextPath === routeByView.feedback);
     setSelectedEventId(null);
   }
 
   function openEvent(eventId) {
     setSelectedEventId(eventId);
     setReadState((current) => markEventRead(current, eventId));
+  }
+
+  function openFeedback() {
+    setFeedbackOpen(true);
+  }
+
+  function closeFeedback() {
+    setFeedbackOpen(false);
+    if (window.location.pathname === routeByView.feedback) {
+      window.history.replaceState(null, "", routeByView.home);
+      setCurrentPath(routeByView.home);
+    }
   }
 
   const activeView = viewFromPath(currentPath);
@@ -276,6 +296,8 @@ export default function App() {
         <AdminPage snapshot={snapshot} onRecompute={runRecompute} onOpenEvent={openEvent} />
       )}
 
+      {activeView !== "admin" && <FeedbackDock onOpen={openFeedback} />}
+      {feedbackOpen && <FeedbackModal onClose={closeFeedback} />}
       <EventDrawer event={selectedEvent} onClose={() => setSelectedEventId(null)} />
     </div>
   );
@@ -303,7 +325,7 @@ function AppHeader({ activeView, navigateTo, query, setQuery, loading, themeMode
             <img src={degotchiMarkUrl} alt="" />
           </span>
           <span>
-            <strong>逮奇雷达</strong>
+            <strong>Radar.Degotchi</strong>
             <small>一份面向普通读者的 AI 科技报纸</small>
           </span>
         </a>
@@ -325,13 +347,6 @@ function AppHeader({ activeView, navigateTo, query, setQuery, loading, themeMode
                 {item.label}
               </a>
             ))}
-            <a
-              className={`admin-link ${activeView === "admin" ? "active" : ""}`}
-              href={routeByView.admin}
-              onClick={(event) => handleRouteClick(event, "admin", navigateTo)}
-            >
-              管理
-            </a>
           </nav>
           <ThemeSwitcher themeMode={themeMode} setThemeMode={setThemeMode} />
         </div>
@@ -345,13 +360,54 @@ function ThemeSwitcher({ themeMode, setThemeMode }) {
     { id: "light", label: "日刊" },
     { id: "dark", label: "夜刊" }
   ];
+
+  function commitTheme(nextMode) {
+    const resolvedTheme = resolveThemeMode(nextMode);
+    document.documentElement.setAttribute("data-theme", resolvedTheme);
+    document.documentElement.setAttribute("data-theme-mode", nextMode);
+    localStorage.setItem(THEME_STORAGE_KEY, nextMode);
+    flushSync(() => setThemeMode(nextMode));
+  }
+
+  function handleThemeClick(event, nextMode) {
+    if (themeMode === nextMode) return;
+
+    const root = document.documentElement;
+    const x = event.clientX;
+    const y = event.clientY;
+    const radius = Math.ceil(Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y)));
+
+    root.style.setProperty("--theme-reveal-x", `${x}px`);
+    root.style.setProperty("--theme-reveal-y", `${y}px`);
+    root.style.setProperty("--theme-reveal-radius", `${radius}px`);
+
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (prefersReducedMotion) {
+      commitTheme(nextMode);
+      return;
+    }
+
+    if (!document.startViewTransition) {
+      runFallbackThemeReveal({
+        color: themeRevealColor(nextMode),
+        onCommit: () => commitTheme(nextMode),
+        radius,
+        x,
+        y
+      });
+      return;
+    }
+
+    document.startViewTransition(() => commitTheme(nextMode));
+  }
+
   return (
     <div className="theme-switcher" aria-label="主题模式">
       {options.map((option) => (
         <button
           key={option.id}
           className={(themeMode === option.id || (themeMode === "system" && option.id === "light")) ? "active" : ""}
-          onClick={() => setThemeMode(option.id)}
+          onClick={(event) => handleThemeClick(event, option.id)}
           aria-pressed={themeMode === option.id}
           type="button"
         >
@@ -360,6 +416,30 @@ function ThemeSwitcher({ themeMode, setThemeMode }) {
       ))}
     </div>
   );
+}
+
+function resolveThemeMode(mode) {
+  if (mode === "system") {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  return mode;
+}
+
+function themeRevealColor(mode) {
+  return resolveThemeMode(mode) === "dark" ? "#12100c" : "#e7ddc7";
+}
+
+function runFallbackThemeReveal({ color, onCommit, radius, x, y }) {
+  const overlay = document.createElement("span");
+  overlay.className = "theme-reveal-overlay";
+  overlay.setAttribute("aria-hidden", "true");
+  overlay.style.setProperty("--theme-reveal-color", color);
+  overlay.style.setProperty("--theme-reveal-radius", `${radius}px`);
+  overlay.style.setProperty("--theme-reveal-x", `${x}px`);
+  overlay.style.setProperty("--theme-reveal-y", `${y}px`);
+  document.body.appendChild(overlay);
+  window.setTimeout(onCommit, 460);
+  window.setTimeout(() => overlay.remove(), 720);
 }
 
 function handleRouteClick(event, view, navigateTo) {
@@ -448,6 +528,12 @@ function HomePage({
 }
 
 function EventFeed({ events, onOpenEvent, readIds, lastReadEventId }) {
+  const { scrollY } = useScroll();
+  const dayX = useSpring(useTransform(scrollY, [0, 280], [0, -5]), { stiffness: 220, damping: 32, mass: 0.35 });
+  const dayY = useSpring(useTransform(scrollY, [0, 280], [0, 4]), { stiffness: 240, damping: 30, mass: 0.35 });
+  const dayOpacity = useSpring(useTransform(scrollY, [0, 280], [1, 0.86]), { stiffness: 220, damping: 28, mass: 0.35 });
+  const ruleScale = useSpring(useTransform(scrollY, [0, 280], [0.72, 1]), { stiffness: 220, damping: 30, mass: 0.35 });
+
   if (!events.length) {
     return <div className="empty-state">没有匹配到事件，换个关键词试试。</div>;
   }
@@ -456,7 +542,7 @@ function EventFeed({ events, onOpenEvent, readIds, lastReadEventId }) {
     <div className="timeline-feed">
       {groups.map((group) => (
         <section key={group.key} className="timeline-day">
-          <div className="timeline-day-label">{group.label}</div>
+          <TimelineDayLabel label={group.label} x={dayX} y={dayY} opacity={dayOpacity} ruleScale={ruleScale} />
           {group.items.map(({ event, rank }) => (
             <Fragment key={event.id}>
               {event.id === lastReadEventId && <LastReadMarker />}
@@ -466,6 +552,16 @@ function EventFeed({ events, onOpenEvent, readIds, lastReadEventId }) {
         </section>
       ))}
     </div>
+  );
+}
+
+function TimelineDayLabel({ label, x, y, opacity, ruleScale }) {
+  return (
+    <MotionDiv className="timeline-day-label" style={{ x, y, opacity }} aria-label={label}>
+      <MotionSpan className="timeline-day-kicker" style={{ scaleX: ruleScale }} aria-hidden="true" />
+      <span className="timeline-day-text">{label}</span>
+      <MotionSpan className="timeline-day-rule" style={{ scaleX: ruleScale }} aria-hidden="true" />
+    </MotionDiv>
   );
 }
 
@@ -505,10 +601,8 @@ function groupTimelineEvents(events) {
 }
 
 function EventTimelineItem({ event, rank, onOpenEvent, isRead }) {
-  const sourceNameById = Object.fromEntries(event.sources.map((source) => [source.id, source.name]));
-  const primaryItem = event.relatedItems[0];
-  const representativeItems = event.relatedItems.slice(0, 2);
   const readable = eventReadableFields(event);
+  const primaryItem = event.relatedItems[0];
   return (
     <article
       className={`timeline-item ${event.trend} ${isRead ? "read" : "unread"}`}
@@ -540,31 +634,8 @@ function EventTimelineItem({ event, rank, onOpenEvent, isRead }) {
             <span>{readable.why}</span>
           </p>
         )}
-        <div className="timeline-evidence-row">
-          <span>
-            <BookOpen size={14} />
-            {sourceCoverageText(event)}
-          </span>
-          {representativeItems.map((item) => (
-            <span key={item.id}>{sourceItemLabel(item, sourceNameById)}</span>
-          ))}
-        </div>
         <div className="timeline-footer">
-          <div className="entity-row compact-entities">
-            {event.entities.slice(0, 5).map((entity) => (
-              <span key={entity}>{entity}</span>
-            ))}
-          </div>
           <div className="event-card-actions">
-            <button
-              onClick={(clickEvent) => {
-                clickEvent.stopPropagation();
-                onOpenEvent(event.id);
-              }}
-            >
-              <FileText size={15} />
-              查看详情
-            </button>
             {primaryItem && (
               <a
                 href={primaryItem.url}
@@ -1036,6 +1107,27 @@ function SourcesPage({ sources, sourceMix }) {
 }
 
 function AdminPage({ snapshot, onRecompute, onOpenEvent }) {
+  const [feedbackItems, setFeedbackItems] = useState([]);
+  const [feedbackLoading, setFeedbackLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/admin/feedback?take=100")
+      .then((response) => response.json())
+      .then((data) => {
+        if (!cancelled && Array.isArray(data.feedback)) setFeedbackItems(data.feedback);
+      })
+      .catch(() => {
+        if (!cancelled) setFeedbackItems([]);
+      })
+      .finally(() => {
+        if (!cancelled) setFeedbackLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <main className="admin-page">
       <div className="admin-head">
@@ -1081,15 +1173,108 @@ function AdminPage({ snapshot, onRecompute, onOpenEvent }) {
           </tbody>
         </table>
       </section>
+      <section className="source-table-card feedback-admin-card">
+        <h2>反馈建议</h2>
+        {feedbackLoading ? (
+          <p className="admin-muted">正在读取本地反馈...</p>
+        ) : feedbackItems.length ? (
+          <div className="feedback-list">
+            {feedbackItems.map((item) => (
+              <article key={item.id} className="feedback-admin-item">
+                <div>
+                  <strong>{item.title}</strong>
+                  <time>{formatTime(item.createdAt)}</time>
+                </div>
+                <p>{item.content}</p>
+                {item.email && <span>{item.email}</span>}
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="admin-muted">暂无反馈。</p>
+        )}
+      </section>
     </main>
   );
 }
 
-function SectionTitle({ eyebrow, title, caption, compact = false }) {
+function FeedbackDock({ onOpen }) {
+  return (
+    <button className="feedback-dock" type="button" onClick={onOpen}>
+      <MessageSquare size={15} />
+      反馈建议
+    </button>
+  );
+}
+
+function FeedbackModal({ onClose }) {
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [email, setEmail] = useState("");
+  const [status, setStatus] = useState({ type: "idle", message: "" });
+
+  async function submitFeedback(event) {
+    event.preventDefault();
+    setStatus({ type: "loading", message: "正在保存..." });
+    try {
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, content, email })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "feedback_failed");
+      setTitle("");
+      setContent("");
+      setEmail("");
+      setStatus({ type: "success", message: "已收到，感谢反馈。" });
+    } catch {
+      setStatus({ type: "error", message: "保存失败，请稍后再试。" });
+    }
+  }
+
+  return (
+    <div className="feedback-modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section className="feedback-card feedback-modal" role="dialog" aria-modal="true" aria-labelledby="feedback-title" onMouseDown={(event) => event.stopPropagation()}>
+        <button className="drawer-close feedback-close" type="button" onClick={onClose} aria-label="关闭反馈">
+          <X size={18} />
+        </button>
+        <SectionTitle
+          eyebrow="Feedback"
+          title="反馈建议"
+          caption="写下你希望逮奇雷达改进的地方。标题和内容必填，邮箱选填。"
+          titleId="feedback-title"
+        />
+        <form className="feedback-form" onSubmit={submitFeedback}>
+          <label>
+            <span>标题</span>
+            <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} required />
+          </label>
+          <label>
+            <span>内容</span>
+            <textarea value={content} onChange={(event) => setContent(event.target.value)} maxLength={2400} rows={8} required />
+          </label>
+          <label>
+            <span>邮箱（选填）</span>
+            <input value={email} onChange={(event) => setEmail(event.target.value)} maxLength={160} type="email" />
+          </label>
+          <div className="feedback-form-actions">
+            <button className="primary-action" disabled={status.type === "loading"} type="submit">
+              提交反馈
+            </button>
+            {status.message && <p className={`feedback-status ${status.type}`}>{status.message}</p>}
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function SectionTitle({ eyebrow, title, caption, compact = false, titleId }) {
   return (
     <div className={`section-title ${compact ? "compact" : ""}`}>
       {eyebrow && <span>{eyebrow}</span>}
-      <h2>{title}</h2>
+      <h2 id={titleId}>{title}</h2>
       {caption && <p>{caption}</p>}
     </div>
   );
@@ -1145,20 +1330,6 @@ function trustTone(event) {
 
 function highTrustSourceCount(event) {
   return event.sources.filter((source) => source.tier === "T1" || source.tier === "T1.5").length;
-}
-
-function sourceCoverageText(event) {
-  const highTrust = highTrustSourceCount(event);
-  const sourceNames = event.sources
-    .slice(0, 3)
-    .map((source) => source.name)
-    .filter(Boolean)
-    .join(" / ");
-  if (!event.sources.length) return "暂无明确来源";
-  if (event.sources.length === 1) {
-    return `${highTrust ? "1 个高可信来源" : "1 个来源"}${sourceNames ? ` · ${sourceNames}` : ""}`;
-  }
-  return `${event.sources.length} 个来源 · ${highTrust} 个高可信${sourceNames ? ` · ${sourceNames}` : ""}`;
 }
 
 function displayTitle(event) {
@@ -1287,6 +1458,7 @@ function isXUrl(item) {
 
 function cleanText(value, maxLength = 180) {
   const text = String(value ?? "")
+    .replace(/^(?=[\s\S]{0,340}(?:aside_block|btn_text|href|image))[\s\S]{0,340}?\)\]>\s*/i, "")
     .replace(/\s+/g, " ")
     .replace(/https?\s*[：:]\s*\/\/\S+/gi, "")
     .trim();
@@ -1632,12 +1804,16 @@ function formatDayKey(value) {
 function formatDayLabel(value) {
   const date = toValidDate(value);
   if (!date) return "时间未知";
-  return new Intl.DateTimeFormat(getBrowserLocale(), {
+  const weekday = new Intl.DateTimeFormat("en-US", {
     timeZone: getBrowserTimeZone(),
-    month: "2-digit",
-    day: "2-digit",
     weekday: "short"
   }).format(date);
+  const monthDay = new Intl.DateTimeFormat("en-US", {
+    timeZone: getBrowserTimeZone(),
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
+  return `${weekday}, ${monthDay}`;
 }
 
 function formatUpdateLabel(value) {

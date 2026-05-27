@@ -62,16 +62,16 @@ export const liveSourceConfigs = [
     category: "模型发布"
   },
   {
-    id: "live-huggingface-blog",
-    name: "Hugging Face Blog",
-    url: "https://huggingface.co/blog/feed.xml",
+    id: "live-google-research",
+    name: "Google Research Blog",
+    url: "https://research.google/blog/rss/",
     parser: "rss",
     platform: "RSS",
     tier: "T1.5",
     type: "official_blog",
-    owner: "Hugging Face",
-    weight: 1.1,
-    category: "开源生态"
+    owner: "Google Research",
+    weight: 1.08,
+    category: "论文研究"
   },
   {
     id: "live-github-blog-ai",
@@ -83,6 +83,78 @@ export const liveSourceConfigs = [
     type: "official_blog",
     owner: "GitHub",
     weight: 1.06,
+    category: "产品更新"
+  },
+  {
+    id: "live-aws-ml-blog",
+    name: "AWS Machine Learning Blog",
+    url: "https://aws.amazon.com/blogs/machine-learning/feed/",
+    parser: "rss",
+    platform: "RSS",
+    tier: "T1.5",
+    type: "official_blog",
+    owner: "AWS",
+    weight: 1.04,
+    category: "产品更新"
+  },
+  {
+    id: "live-nvidia-blog",
+    name: "NVIDIA Blog",
+    url: "https://blogs.nvidia.com/feed/",
+    parser: "rss",
+    platform: "RSS",
+    tier: "T1.5",
+    type: "official_blog",
+    owner: "NVIDIA",
+    weight: 1.04,
+    category: "行业动态"
+  },
+  {
+    id: "live-nvidia-developer",
+    name: "NVIDIA Developer Blog",
+    url: "https://developer.nvidia.com/blog/feed/",
+    parser: "atom",
+    platform: "RSS",
+    tier: "T1.5",
+    type: "official_blog",
+    owner: "NVIDIA",
+    weight: 1.03,
+    category: "开源生态"
+  },
+  {
+    id: "live-mit-ai-news",
+    name: "MIT AI News",
+    url: "https://news.mit.edu/topic/mitartificial-intelligence2-rss.xml",
+    parser: "rss",
+    platform: "RSS",
+    tier: "T1.5",
+    type: "research_news",
+    owner: "MIT",
+    weight: 1,
+    category: "论文研究"
+  },
+  {
+    id: "live-microsoft-ai-blog",
+    name: "Microsoft AI Blog",
+    url: "https://blogs.microsoft.com/ai/feed/",
+    parser: "rss",
+    platform: "RSS",
+    tier: "T1.5",
+    type: "official_blog",
+    owner: "Microsoft",
+    weight: 1.02,
+    category: "行业动态"
+  },
+  {
+    id: "live-google-cloud-blog",
+    name: "Google Cloud Blog",
+    url: "https://cloudblog.withgoogle.com/rss",
+    parser: "rss",
+    platform: "RSS",
+    tier: "T1.5",
+    type: "official_blog",
+    owner: "Google Cloud",
+    weight: 1.03,
     category: "产品更新"
   },
   {
@@ -180,80 +252,8 @@ export const liveSourceConfigs = [
     owner: "Hacker News",
     weight: 0.92,
     category: "技巧与观点"
-  },
-  githubReleaseSource("live-github-openai-python", "OpenAI Python Releases", "openai/openai-python", "OpenAI", "T1.5"),
-  githubReleaseSource(
-    "live-github-openai-agents-python",
-    "OpenAI Agents Python Releases",
-    "openai/openai-agents-python",
-    "OpenAI",
-    "T1.5"
-  ),
-  githubReleaseSource("live-github-langchain", "LangChain Releases", "langchain-ai/langchain", "LangChain", "T1.5"),
-  githubReleaseSource("live-github-transformers", "Transformers Releases", "huggingface/transformers", "Hugging Face", "T1.5"),
-  githubReleaseSource("live-github-ollama", "Ollama Releases", "ollama/ollama", "Ollama", "T1.5"),
-  githubReleaseSource("live-github-vllm", "vLLM Releases", "vllm-project/vllm", "vLLM", "T1.5"),
-  githubReleaseSource("live-github-llama-cpp", "llama.cpp Releases", "ggml-org/llama.cpp", "ggml-org", "T1.5"),
-  githubReleaseSource(
-    "live-github-mcp-servers",
-    "MCP Servers Releases",
-    "modelcontextprotocol/servers",
-    "Model Context Protocol",
-    "T1.5"
-  ),
-  {
-    id: "live-youtube-openai",
-    name: "OpenAI YouTube",
-    url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCXZCJLdBC09xxGZ6gcdrc6A",
-    parser: "atom",
-    platform: "YouTube",
-    tier: "T1.5",
-    type: "video",
-    owner: "OpenAI",
-    weight: 0.98,
-    category: "产品更新"
-  },
-  {
-    id: "live-youtube-deepmind",
-    name: "Google DeepMind YouTube",
-    url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCP7jMXSY2xbc3KCAE0MHQ-A",
-    parser: "atom",
-    platform: "YouTube",
-    tier: "T1.5",
-    type: "video",
-    owner: "Google DeepMind",
-    weight: 0.98,
-    category: "产品更新"
-  },
-  {
-    id: "live-youtube-two-minute-papers",
-    name: "Two Minute Papers YouTube",
-    url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCbfYPyITQ-7l4upoX8nvctg",
-    parser: "atom",
-    platform: "YouTube",
-    tier: "T2",
-    type: "video",
-    owner: "Two Minute Papers",
-    weight: 0.88,
-    category: "论文研究"
   }
 ];
-
-function githubReleaseSource(id, name, repo, owner, tier) {
-  return {
-    id,
-    name,
-    url: `https://github.com/${repo}/releases.atom`,
-    parser: "atom",
-    platform: "GitHub",
-    tier,
-    type: "repo_release",
-    owner,
-    weight: 1.02,
-    category: "开源生态",
-    repo
-  };
-}
 
 export async function fetchLiveData({ force = false } = {}) {
   const startedAt = Date.now();
@@ -744,6 +744,7 @@ function stripHtml(value) {
 
 function cleanText(value) {
   return stripHtmlPreserveText(decodeXml(String(value ?? "")))
+    .replace(/^(?=[\s\S]{0,340}(?:aside_block|btn_text|href|image))[\s\S]{0,340}?\)\]>\s*/i, "")
     .replace(/\s+/g, " ")
     .replace(/\s+([,.!?;:，。！？；：])/g, "$1")
     .trim();

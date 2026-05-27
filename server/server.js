@@ -15,6 +15,7 @@ import { getLiveDataset, liveSourceConfigs } from "../src/data/liveSources.js";
 import { buildSnapshot } from "../src/lib/scoring.js";
 import { ensureDailyBrief, getDailyBriefById, listDailyBriefs, msUntilNextDailyRun } from "./dailyBriefStore.js";
 import { applyEditorialEnrichment } from "./editorialEnrichment.js";
+import { listFeedback, saveFeedback } from "./feedbackStore.js";
 
 dotenv.config({ path: ".env.local" });
 dotenv.config();
@@ -130,6 +131,35 @@ app.post("/api/llm/event-summary", async (req, res) => {
   });
 });
 
+app.post("/api/feedback", async (req, res) => {
+  try {
+    const feedback = await saveFeedback({
+      ...req.body,
+      userAgent: req.get("user-agent"),
+      referer: req.get("referer")
+    });
+    res.json({ ok: true, feedback });
+  } catch (error) {
+    const validationErrors = new Set([
+      "feedback_title_required",
+      "feedback_content_required",
+      "feedback_title_too_long",
+      "feedback_content_too_long",
+      "feedback_email_too_long"
+    ]);
+    res.status(validationErrors.has(error.message) ? 400 : 500).json({ ok: false, error: error.message });
+  }
+});
+
+app.get("/api/admin/feedback", async (req, res) => {
+  try {
+    const take = Math.min(300, Math.max(1, Number(req.query.take || 100)));
+    res.json({ ok: true, feedback: await listFeedback({ take }) });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message, feedback: [] });
+  }
+});
+
 if (existsSync(clientIndexPath)) {
   app.use(express.static(clientDistPath, { index: false }));
   app.get(/^\/(?!api(?:\/|$)).*/, (_req, res) => {
@@ -143,7 +173,7 @@ async function getSnapshot() {
 }
 
 async function refreshSnapshot({ force = false, allowAi = false, reason = "auto" } = {}) {
-  if (snapshotRefreshPromise && !force) return snapshotRefreshPromise;
+  if (snapshotRefreshPromise) return snapshotRefreshPromise;
 
   snapshotRefreshPromise = createSnapshot({ force, allowAi })
     .then(async (snapshot) => {
