@@ -138,6 +138,31 @@ jobs:
               printf '%s\n' '  }'
               printf '%s\n' '}'
             } > "$proxy_dir/7.conf"
+            {
+              printf '%s\n' '# ------------------------------------------------------------'
+              printf '%s\n' '# ainews.degotchi.com -> radar.degotchi.com'
+              printf '%s\n' '# ------------------------------------------------------------'
+              printf '%s\n' ''
+              printf '%s\n' 'server {'
+              printf '%s\n' '  listen 80;'
+              printf '%s\n' '  listen [::]:80;'
+              printf '%s\n' '  server_name ainews.degotchi.com;'
+              printf '%s\n' '  return 301 https://radar.degotchi.com$request_uri;'
+              printf '%s\n' '}'
+              printf '%s\n' ''
+              printf '%s\n' 'server {'
+              printf '%s\n' '  listen 443 ssl;'
+              printf '%s\n' '  listen [::]:443 ssl;'
+              printf '%s\n' '  server_name ainews.degotchi.com;'
+              printf '%s\n' '  http2 on;'
+              printf '%s\n' '  include conf.d/include/letsencrypt-acme-challenge.conf;'
+              printf '%s\n' '  include conf.d/include/ssl-cache.conf;'
+              printf '%s\n' '  include conf.d/include/ssl-ciphers.conf;'
+              printf '%s\n' '  ssl_certificate /etc/letsencrypt/live/ainews.degotchi.com/fullchain.pem;'
+              printf '%s\n' '  ssl_certificate_key /etc/letsencrypt/live/ainews.degotchi.com/privkey.pem;'
+              printf '%s\n' '  return 301 https://radar.degotchi.com$request_uri;'
+              printf '%s\n' '}'
+            } > "$proxy_dir/6.conf"
             if docker ps --format '{{.Names}}' | grep -qx 'de_npm'; then
               docker exec de_npm nginx -t
               docker exec de_npm nginx -s reload
