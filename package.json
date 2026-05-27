@@ -7,6 +7,8 @@
     "dev": "concurrently -k -n api,web -c cyan,green \"npm:dev:api\" \"npm:dev:web\"",
     "dev:web": "vite --host 0.0.0.0",
     "dev:api": "node --watch server/server.js",
+    "start": "node server/server.js",
+    "test:live": "node --test test/liveSources.test.js",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "lint": "eslint ."

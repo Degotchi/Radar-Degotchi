@@ -1,0 +1,104 @@
+name: Deploy Radar
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: radar-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Install deploy tools
+        run: sudo apt-get update && sudo apt-get install -y rsync
+
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/radar_deploy_key
+          chmod 600 ~/.ssh/radar_deploy_key
+          for attempt in 1 2 3 4 5; do
+            ssh-keyscan -T 10 -p "$DEPLOY_PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts && break
+            sleep 5
+          done
+
+      - name: Sync files
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          set -euo pipefail
+          SSH_OPTS="-i ~/.ssh/radar_deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -p $DEPLOY_PORT"
+          for attempt in 1 2 3 4 5; do
+            ssh $SSH_OPTS "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p /opt/radar" && break
+            sleep 8
+          done
+          for attempt in 1 2 3; do
+            rsync -az --delete \
+              -e "ssh $SSH_OPTS" \
+              --exclude '.git/' \
+              --exclude '.github/' \
+              --exclude '.cache/' \
+              --exclude '.env' \
+              --exclude '.env.*' \
+              --exclude '.playwright-cli/' \
+              --exclude 'node_modules/' \
+              --exclude 'output/' \
+              ./ "$DEPLOY_USER@$DEPLOY_HOST:/opt/radar/" && break
+            sleep 8
+          done
+
+      - name: Restart service
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          set -euo pipefail
+          SSH_OPTS="-i ~/.ssh/radar_deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -p $DEPLOY_PORT"
+          for attempt in 1 2 3 4 5; do
+            ssh $SSH_OPTS "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE' && break
+            set -euo pipefail
+            cd /opt/radar
+            npm ci --omit=dev
+            if pm2 describe radar >/dev/null 2>&1; then
+              pm2 restart radar --update-env
+            else
+              pm2 start ecosystem.config.cjs --env production
+            fi
+            pm2 save
+          REMOTE
+            sleep 8
+          done

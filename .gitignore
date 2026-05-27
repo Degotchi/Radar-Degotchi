@@ -1,7 +1,11 @@
 node_modules
 dist
+output
+src/assets/*preview*.png
 .playwright-cli
 .env
 .env.local
+.cache
+.secrets
 .DS_Store
 *.log

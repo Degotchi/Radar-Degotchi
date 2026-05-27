@@ -8,6 +8,9 @@ const typeWeight = {
   official_blog: 1.16,
   official_social: 1.07,
   repo_release: 1.04,
+  aggregator: 0.98,
+  paper: 0.98,
+  newsletter: 0.93,
   kol: 0.96,
   community: 0.9,
   media: 0.9,
@@ -16,7 +19,7 @@ const typeWeight = {
 
 const clamp = (value, min = 0, max = 100) => Math.min(max, Math.max(min, value));
 
-export function hoursSince(dateLike, now = new Date("2026-05-24T13:00:00+08:00")) {
+export function hoursSince(dateLike, now = new Date()) {
   return Math.max(0, (now.getTime() - new Date(dateLike).getTime()) / 36e5);
 }
 
@@ -174,7 +177,13 @@ export function enrichEvents(events, sources, rawItems, rules) {
         platforms: [...new Set(eventSources.map((source) => source.platform))]
       };
     })
-    .sort((a, b) => b.hotScore - a.hotScore);
+    .sort((a, b) => displayRank(b) - displayRank(a));
+}
+
+function displayRank(event) {
+  const multiSourceBoost = event.sources.length >= 2 ? 5 : 0;
+  const singleT2Penalty = event.primaryTier === "T2" && event.sources.length === 1 ? 7 : 0;
+  return event.selectedScore * 0.48 + event.confidence * 0.28 + event.hotScore * 0.24 + multiSourceBoost - singleT2Penalty;
 }
 
 export function clusterSignature(item) {
@@ -222,7 +231,12 @@ function normalize(value) {
 }
 
 export function buildDailyBrief(enrichedEvents) {
-  const sections = ["模型发布", "产品更新", "行业动态", "开源生态"].map((category) => ({
+  const orderedCategories = ["模型发布", "产品更新", "行业动态", "开源生态", "论文研究", "技巧与观点"];
+  const categories = [
+    ...orderedCategories,
+    ...new Set(enrichedEvents.map((event) => event.category).filter((category) => !orderedCategories.includes(category)))
+  ];
+  const sections = categories.map((category) => ({
     category,
     events: enrichedEvents
       .filter((event) => event.category === category && event.selected)
@@ -232,7 +246,7 @@ export function buildDailyBrief(enrichedEvents) {
 
   return {
     title: "AI/科技 24 小时情报日报",
-    generatedAt: "2026-05-24T08:00:00+08:00",
+    generatedAt: new Date().toISOString(),
     sections,
     risingEvents: enrichedEvents.filter((event) => event.trend === "rising").slice(0, 4),
     coolingEvents: enrichedEvents.filter((event) => event.trend === "cooling").slice(0, 4),

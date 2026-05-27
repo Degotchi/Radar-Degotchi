@@ -1,22 +1,20 @@
 import {
-  Activity,
-  Bot,
+  BookOpen,
   CheckCircle2,
   Clock3,
   Database,
   FileText,
-  Flame,
   Layers3,
-  MessageSquareText,
+  ExternalLink,
   Search,
-  Settings2,
   ShieldCheck,
   TrendingUp,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { events as mockEvents, jobs as mockJobs, rawItems as mockRawItems, rules as mockRules, sources as mockSources } from "./data/mockData.js";
 import { buildSnapshot } from "./lib/scoring.js";
+import degotchiMarkUrl from "./assets/degotchi-mark-tight.png";
 
 const fallbackSnapshot = buildSnapshot({
   events: mockEvents,
@@ -30,26 +28,128 @@ const categoryTone = {
   "模型发布": "blue",
   "产品更新": "green",
   "行业动态": "orange",
-  "开源生态": "violet"
+  "开源生态": "violet",
+  "论文研究": "sky",
+  "技巧与观点": "slate"
 };
+
+const routeByView = {
+  home: "/",
+  brief: "/brief",
+  sources: "/sources",
+  admin: "/admin"
+};
+
+const FEED_BATCH_SIZE = 20;
+const DEFAULT_AUTO_REFRESH_MS = 60 * 60 * 1000;
+const THEME_STORAGE_KEY = "ai-hot-radar-theme";
+const READ_STATE_STORAGE_KEY = "ai-hot-radar-read-state";
+
+function viewFromPath(pathname) {
+  if (pathname === "/brief" || pathname.startsWith("/brief/") || pathname.startsWith("/s/")) return "brief";
+  if (pathname === "/sources") return "sources";
+  if (pathname === "/admin") return "admin";
+  return "home";
+}
+
+function briefKeyFromPath(pathname) {
+  if (pathname.startsWith("/brief/")) return decodeURIComponent(pathname.split("/")[2] ?? "");
+  if (pathname.startsWith("/s/")) return decodeURIComponent(pathname.split("/")[2] ?? "");
+  return "";
+}
 
 export default function App() {
   const [snapshot, setSnapshot] = useState(fallbackSnapshot);
-  const [activeView, setActiveView] = useState("home");
+  const [currentPath, setCurrentPath] = useState(() => window.location.pathname);
   const [query, setQuery] = useState("");
   const [briefFilter, setBriefFilter] = useState("全部");
   const [selectedEventId, setSelectedEventId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
-  const [llmState, setLlmState] = useState({ loading: false, eventId: null, text: "" });
+  const [themeMode, setThemeMode] = useState(loadThemeMode);
+  const [readState, setReadState] = useState(loadReadState);
+  const [dailies, setDailies] = useState([]);
+  const sessionLastReadEventIdRef = useRef(readState.lastReadEventId);
 
   useEffect(() => {
-    fetch("/api/snapshot")
-      .then((response) => response.json())
-      .then((data) => setSnapshot(data))
-      .catch(() => setSnapshot(fallbackSnapshot))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    async function loadInitialData() {
+      try {
+        const [snapshotResponse, dailiesResponse] = await Promise.all([fetch("/api/snapshot"), fetch("/api/dailies?take=30")]);
+        const [snapshotData, dailiesData] = await Promise.all([snapshotResponse.json(), dailiesResponse.json()]);
+        if (cancelled) return;
+        setSnapshot(snapshotData);
+        if (Array.isArray(dailiesData.articles)) setDailies(dailiesData.articles);
+      } catch {
+        if (!cancelled) setSnapshot(fallbackSnapshot);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    loadInitialData();
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    function applyTheme() {
+      const resolvedTheme = themeMode === "system" ? (media.matches ? "dark" : "light") : themeMode;
+      document.documentElement.dataset.theme = resolvedTheme;
+      document.documentElement.dataset.themeMode = themeMode;
+      localStorage.setItem(THEME_STORAGE_KEY, themeMode);
+    }
+    applyTheme();
+    media.addEventListener("change", applyTheme);
+    return () => media.removeEventListener("change", applyTheme);
+  }, [themeMode]);
+
+  useEffect(() => {
+    localStorage.setItem(READ_STATE_STORAGE_KEY, JSON.stringify(readState));
+  }, [readState]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refreshQuietly() {
+      try {
+        const [snapshotResponse, dailiesResponse] = await Promise.all([fetch("/api/snapshot"), fetch("/api/dailies?take=30")]);
+        const [snapshotData, dailiesData] = await Promise.all([snapshotResponse.json(), dailiesResponse.json()]);
+        if (cancelled) return;
+        setSnapshot(snapshotData);
+        if (Array.isArray(dailiesData.articles)) setDailies(dailiesData.articles);
+      } catch {
+        if (!cancelled) setToast("自动刷新失败，继续显示上一批内容");
+        window.setTimeout(() => setToast(""), 2400);
+      }
+    }
+    const intervalMs = snapshot.refreshPolicy?.intervalMs || DEFAULT_AUTO_REFRESH_MS;
+    const timer = window.setInterval(refreshQuietly, intervalMs);
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") refreshQuietly();
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [snapshot.refreshPolicy?.intervalMs]);
+
+  useEffect(() => {
+    function handlePopState() {
+      setCurrentPath(window.location.pathname);
+      setSelectedEventId(null);
+    }
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useLayoutEffect(() => {
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    window.scrollTo(0, 0);
+  }, [currentPath]);
 
   const selectedEvent = useMemo(() => {
     return snapshot.events.find((event) => event.id === selectedEventId) ?? null;
@@ -57,7 +157,18 @@ export default function App() {
 
   const filteredEvents = useMemo(() => {
     return snapshot.events.filter((event) => {
-      const keyword = `${event.title} ${event.summary} ${event.whyItMatters} ${event.entities.join(" ")}`.toLowerCase();
+      const keyword = [
+        event.title,
+        event.editorSummary ?? event.summary,
+        event.editorInsight,
+        event.editorDetail,
+        ...(event.editorBullets ?? []),
+        ...event.entities,
+        ...(event.relatedItems ?? []).flatMap((item) => [item.title, item.summary, item.originalSource])
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
       const matchesQuery = !query || keyword.includes(query.toLowerCase());
       const matchesFilter =
         briefFilter === "全部" ||
@@ -69,46 +180,71 @@ export default function App() {
   }, [snapshot.events, query, briefFilter]);
 
   async function runRecompute() {
-    setToast("正在重新整理本地模拟事件...");
+    setToast("正在抓取真实信源并重新聚类...");
     try {
       const response = await fetch("/api/jobs/recompute", { method: "POST" });
       const data = await response.json();
       if (data.snapshot) setSnapshot(data.snapshot);
-      setToast("已重新生成首页简报和事件排序");
+      const dailiesResponse = await fetch("/api/dailies?take=30");
+      const dailiesData = await dailiesResponse.json();
+      if (Array.isArray(dailiesData.articles)) setDailies(dailiesData.articles);
+      setToast("已基于真实信源重新生成首页简报和事件排序");
     } catch {
-      setToast("本地 API 暂不可用，首页继续使用内置模拟数据");
+      setToast("本地 API 暂不可用，首页保留最后一次数据");
     }
     window.setTimeout(() => setToast(""), 2400);
   }
 
-  async function explainWithLlm(eventId) {
-    setSelectedEventId(eventId);
-    setLlmState({ loading: true, eventId, text: "" });
-    try {
-      const response = await fetch("/api/llm/event-summary", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eventId })
-      });
-      const data = await response.json();
-      setLlmState({ loading: false, eventId, text: cleanLlmText(data.text) || "没有返回分析。" });
-    } catch {
-      setLlmState({
-        loading: false,
-        eventId,
-        text: "LLM 暂不可用。你仍然可以查看事件摘要、为什么重要、信源证据和时间线。"
-      });
-    }
+  function navigateTo(nextView) {
+    const nextPath = routeByView[nextView] ?? routeByView.home;
+    navigateToPath(nextPath);
   }
+
+  function navigateToPath(nextPath) {
+    if (nextPath === window.location.pathname) return;
+    window.history.pushState(null, "", nextPath);
+    setCurrentPath(nextPath);
+    setSelectedEventId(null);
+  }
+
+  function openEvent(eventId) {
+    setSelectedEventId(eventId);
+    setReadState((current) => markEventRead(current, eventId));
+  }
+
+  const activeView = viewFromPath(currentPath);
+  const activeBriefKey = briefKeyFromPath(currentPath);
+
+  useEffect(() => {
+    if (!activeBriefKey || dailies.some((article) => article.id === activeBriefKey || article.shortCode === activeBriefKey)) return;
+    let cancelled = false;
+    fetch(`/api/daily/${encodeURIComponent(activeBriefKey)}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.article) setDailies((current) => [data.article, ...current]);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [activeBriefKey, dailies]);
+
+  const activeArticle =
+    dailies.find((article) => article.id === activeBriefKey || article.shortCode === activeBriefKey) ??
+    dailies[0] ??
+    articleFromSnapshot(snapshot);
+  const readIds = useMemo(() => new Set(readState.readIds), [readState.readIds]);
 
   return (
     <div className="product-shell">
       <AppHeader
         activeView={activeView}
-        setActiveView={setActiveView}
+        navigateTo={navigateTo}
         query={query}
         setQuery={setQuery}
         loading={loading}
+        themeMode={themeMode}
+        setThemeMode={setThemeMode}
       />
       {toast && <div className="toast">{toast}</div>}
 
@@ -116,272 +252,352 @@ export default function App() {
         <HomePage
           snapshot={snapshot}
           events={filteredEvents}
-          query={query}
-          setQuery={setQuery}
           briefFilter={briefFilter}
           setBriefFilter={setBriefFilter}
-          onOpenEvent={setSelectedEventId}
-          onExplain={explainWithLlm}
-          onRecompute={runRecompute}
+          onOpenEvent={openEvent}
+          readIds={readIds}
+          lastReadEventId={sessionLastReadEventIdRef.current}
         />
       )}
 
       {activeView === "brief" && (
-        <BriefPage brief={snapshot.dailyBrief} events={snapshot.events} onOpenEvent={setSelectedEventId} />
+        <BriefPage
+          article={activeArticle}
+          dailies={dailies}
+          events={snapshot.events}
+          onOpenEvent={openEvent}
+          navigateToPath={navigateToPath}
+        />
       )}
 
       {activeView === "sources" && <SourcesPage sources={snapshot.sources} sourceMix={snapshot.sourceMix} />}
 
       {activeView === "admin" && (
-        <AdminPage snapshot={snapshot} onRecompute={runRecompute} onOpenEvent={setSelectedEventId} />
+        <AdminPage snapshot={snapshot} onRecompute={runRecompute} onOpenEvent={openEvent} />
       )}
 
-      <EventDrawer event={selectedEvent} onClose={() => setSelectedEventId(null)} onExplain={explainWithLlm} llmState={llmState} />
+      <EventDrawer event={selectedEvent} onClose={() => setSelectedEventId(null)} />
     </div>
   );
 }
 
-function AppHeader({ activeView, setActiveView, query, setQuery, loading }) {
+function AppHeader({ activeView, navigateTo, query, setQuery, loading, themeMode, setThemeMode }) {
   const navItems = [
     { id: "home", label: "首页" },
     { id: "brief", label: "今日简报" },
     { id: "sources", label: "信源说明" }
   ];
+  const editionStatus = loading ? "正在连接真实信源" : "实时电讯已更新";
 
   return (
     <header className="app-header">
-      <button className="brand-button" onClick={() => setActiveView("home")}>
-        <span className="brand-logo">AI</span>
-        <span>
-          <strong>AI Hot Radar</strong>
-          <small>{loading ? "正在连接本地数据" : "24 小时热点简报"}</small>
-        </span>
-      </button>
-
-      <div className="header-search">
-        <Search size={16} />
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索事件、公司、模型、关键词" />
+      <div className="edition-strip" aria-label="报纸版面信息">
+        <span>逮奇 / AI NEWSWIRE</span>
+        <span>{formatNewspaperDate(new Date())}</span>
+        <span>{editionStatus}</span>
       </div>
 
-      <nav className="header-nav">
-        {navItems.map((item) => (
-          <button key={item.id} className={activeView === item.id ? "active" : ""} onClick={() => setActiveView(item.id)}>
-            {item.label}
-          </button>
-        ))}
-        <AdminLink active={activeView === "admin"} onClick={() => setActiveView("admin")} />
-      </nav>
+      <div className="masthead-row">
+        <a className="brand-button" href={routeByView.home} onClick={(event) => handleRouteClick(event, "home", navigateTo)}>
+          <span className="brand-logo">
+            <img src={degotchiMarkUrl} alt="" />
+          </span>
+          <span>
+            <strong>逮奇雷达</strong>
+            <small>一份面向普通读者的 AI 科技报纸</small>
+          </span>
+        </a>
+
+        <div className="header-search">
+          <Search size={16} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="检索报纸库：公司、模型、事件" />
+        </div>
+
+        <div className="masthead-tools">
+          <nav className="header-nav" aria-label="主版面导航">
+            {navItems.map((item) => (
+              <a
+                key={item.id}
+                className={activeView === item.id ? "active" : ""}
+                href={routeByView[item.id]}
+                onClick={(event) => handleRouteClick(event, item.id, navigateTo)}
+              >
+                {item.label}
+              </a>
+            ))}
+            <a
+              className={`admin-link ${activeView === "admin" ? "active" : ""}`}
+              href={routeByView.admin}
+              onClick={(event) => handleRouteClick(event, "admin", navigateTo)}
+            >
+              管理
+            </a>
+          </nav>
+          <ThemeSwitcher themeMode={themeMode} setThemeMode={setThemeMode} />
+        </div>
+      </div>
     </header>
   );
 }
 
-function AdminLink({ active, onClick }) {
+function ThemeSwitcher({ themeMode, setThemeMode }) {
+  const options = [
+    { id: "light", label: "日刊" },
+    { id: "dark", label: "夜刊" }
+  ];
   return (
-    <button className={`admin-link ${active ? "active" : ""}`} onClick={onClick}>
-      <Settings2 size={14} />
-      管理
-    </button>
-  );
-}
-
-function HomePage({
-  snapshot,
-  events,
-  query,
-  setQuery,
-  briefFilter,
-  setBriefFilter,
-  onOpenEvent,
-  onExplain,
-  onRecompute
-}) {
-  const latestEvent = snapshot.events[0];
-  const categories = ["全部", "正在升温", "持续观察", ...new Set(snapshot.events.map((event) => event.category))];
-
-  return (
-    <main className="home-page feed-page">
-      <section className="feed-hero">
-        <div>
-          <p className="eyebrow">AI / 科技 24h Feed</p>
-          <h1>像刷动态一样看今天的 AI 热点</h1>
-          <p>先看最热事件，再顺着卡片扫过摘要、看点、来源和可信度。</p>
-        </div>
-        <div className="feed-hero-actions">
-          <span>最近更新 {latestEvent ? formatTime(latestEvent.lastSeenAt) : "刚刚"}</span>
-          <button className="secondary-action" onClick={onRecompute}>
-            <Activity size={16} />
-            重新整理
-          </button>
-        </div>
-      </section>
-
-      <section className="feed-layout">
-        <section className="feed-main">
-          <div className="feed-toolbar">
-            <div>
-              <strong>{events.length} 条热点</strong>
-              <span>按热度排序，聚合后展示</span>
-            </div>
-            <div className="filter-pills">
-              {categories.map((category) => (
-                <button key={category} className={briefFilter === category ? "active" : ""} onClick={() => setBriefFilter(category)}>
-                  {category}
-                </button>
-              ))}
-            </div>
-          </div>
-          <EventFeed events={events} onOpenEvent={onOpenEvent} onExplain={onExplain} />
-        </section>
-
-        <aside className="feed-rail">
-          <FeedStats snapshot={snapshot} />
-          <ScoreLegend />
-          <TrendSection events={snapshot.events} />
-          <BriefEntry brief={snapshot.dailyBrief} onOpenEvent={onOpenEvent} />
-          <SearchSuggestion query={query} setQuery={setQuery} />
-        </aside>
-      </section>
-    </main>
-  );
-}
-
-function FeedStats({ snapshot }) {
-  return (
-    <section className="side-card feed-stats">
-      <SectionTitle eyebrow="Snapshot" title="今日概览" caption="过去 24 小时" compact />
-      <div className="feed-stat-grid">
-        <Metric label="原始信号" value={snapshot.metrics.rawItems} />
-        <Metric label="聚合事件" value={snapshot.metrics.events} />
-        <Metric label="精选入选" value={snapshot.metrics.selected} />
-        <Metric label="正在升温" value={snapshot.metrics.rising} />
-      </div>
-    </section>
-  );
-}
-
-function ScoreLegend() {
-  return (
-    <section className="side-card score-legend">
-      <SectionTitle eyebrow="Scores" title="评分看板" caption="热度、精选、可信三项合看。" compact />
-      <div>
-        <span>
-          <Flame size={15} />
-          热度
-        </span>
-        <p>传播速度、跨平台覆盖、互动和新鲜度。</p>
-      </div>
-      <div>
-        <span>
-          <CheckCircle2 size={15} />
-          精选
-        </span>
-        <p>重要性、新鲜度、可操作性和受众匹配。</p>
-      </div>
-      <div>
-        <span>
-          <ShieldCheck size={15} />
-          可信
-        </span>
-        <p>来源等级、官方程度和交叉验证情况。</p>
-      </div>
-    </section>
-  );
-}
-
-function EventFeed({ events, onOpenEvent, onExplain }) {
-  if (!events.length) {
-    return <div className="empty-state">没有匹配到事件，换个关键词试试。</div>;
-  }
-  return (
-    <div className="event-feed">
-      {events.map((event, index) => (
-        <EventCard key={event.id} event={event} rank={index + 1} onOpenEvent={onOpenEvent} onExplain={onExplain} />
+    <div className="theme-switcher" aria-label="主题模式">
+      {options.map((option) => (
+        <button
+          key={option.id}
+          className={(themeMode === option.id || (themeMode === "system" && option.id === "light")) ? "active" : ""}
+          onClick={() => setThemeMode(option.id)}
+          aria-pressed={themeMode === option.id}
+          type="button"
+        >
+          {option.label}
+        </button>
       ))}
     </div>
   );
 }
 
-function EventCard({ event, rank, onOpenEvent, onExplain }) {
-  const previewSources = event.sources.slice(0, 3);
-  return (
-    <article className={`event-card feed-card ${event.trend}`}>
-      <aside className="score-rail" aria-label={`${event.title} 评分`}>
-        <span className="rank-mark">#{rank}</span>
-        <div className={`score-ring ${scoreTone(event.hotScore)}`}>
-          <strong>{event.hotScore}</strong>
-          <span>热度</span>
-        </div>
-        <div className="mini-score">
-          <span>精选</span>
-          <strong>{event.selectedScore}</strong>
-        </div>
-        <div className="mini-score">
-          <span>可信</span>
-          <strong>{event.confidence}</strong>
-        </div>
-      </aside>
+function handleRouteClick(event, view, navigateTo) {
+  if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+  event.preventDefault();
+  navigateTo(view);
+}
 
-      <div className="feed-card-body">
-        <div className="event-card-head">
+function HomePage({
+  snapshot,
+  events,
+  briefFilter,
+  setBriefFilter,
+  onOpenEvent,
+  readIds,
+  lastReadEventId
+}) {
+  const feedTopRef = useRef(null);
+  const loadMoreRef = useRef(null);
+  const [visibleCount, setVisibleCount] = useState(FEED_BATCH_SIZE);
+  const categories = ["全部", "正在升温", "持续观察", ...new Set(snapshot.events.map((event) => event.category))];
+  const orderedEvents = useMemo(() => {
+    return [...events].sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime());
+  }, [events]);
+  const loadedEvents = orderedEvents.slice(0, visibleCount);
+  const visibleEnd = Math.min(visibleCount, orderedEvents.length);
+  const hasMoreEvents = visibleEnd < orderedEvents.length;
+
+  useEffect(() => {
+    if (!hasMoreEvents || !loadMoreRef.current) return undefined;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0]?.isIntersecting) return;
+        setVisibleCount((count) => Math.min(count + FEED_BATCH_SIZE, orderedEvents.length));
+      },
+      { rootMargin: "360px 0px 520px" }
+    );
+
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [orderedEvents.length, hasMoreEvents]);
+
+  function scrollFeedToTop() {
+    const element = feedTopRef.current;
+    if (!element) return;
+    const targetTop = element.getBoundingClientRect().top + window.scrollY - 10;
+    window.scrollTo({ top: Math.max(0, targetTop), left: 0, behavior: "auto" });
+  }
+
+  function handleFilterChange(category) {
+    setBriefFilter(category);
+    setVisibleCount(FEED_BATCH_SIZE);
+    window.requestAnimationFrame(scrollFeedToTop);
+  }
+
+  return (
+    <main className="home-page feed-page">
+      <section className="feed-layout" ref={feedTopRef}>
+        <section className="feed-main">
+          <div className="feed-tab-sticky">
+            <div className="filter-pills" role="tablist" aria-label="事件分类筛选">
+              {categories.map((category) => (
+                <button
+                  key={category}
+                  className={briefFilter === category ? "active" : ""}
+                  aria-pressed={briefFilter === category}
+                  onClick={() => handleFilterChange(category)}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+          </div>
+          <EventFeed events={loadedEvents} onOpenEvent={onOpenEvent} readIds={readIds} lastReadEventId={lastReadEventId} />
+          <FeedLoadMore
+            loadMoreRef={loadMoreRef}
+            hasMore={hasMoreEvents}
+            visibleCount={visibleEnd}
+            total={orderedEvents.length}
+          />
+        </section>
+      </section>
+    </main>
+  );
+}
+
+function EventFeed({ events, onOpenEvent, readIds, lastReadEventId }) {
+  if (!events.length) {
+    return <div className="empty-state">没有匹配到事件，换个关键词试试。</div>;
+  }
+  const groups = groupTimelineEvents(events);
+  return (
+    <div className="timeline-feed">
+      {groups.map((group) => (
+        <section key={group.key} className="timeline-day">
+          <div className="timeline-day-label">{group.label}</div>
+          {group.items.map(({ event, rank }) => (
+            <Fragment key={event.id}>
+              {event.id === lastReadEventId && <LastReadMarker />}
+              <EventTimelineItem event={event} rank={rank} onOpenEvent={onOpenEvent} isRead={readIds.has(event.id)} />
+            </Fragment>
+          ))}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function LastReadMarker() {
+  return (
+    <div className="last-read-marker">
+      <span />
+      <strong>上次读到这里</strong>
+      <span />
+    </div>
+  );
+}
+
+function FeedLoadMore({ loadMoreRef, hasMore, visibleCount, total }) {
+  if (!total) return null;
+  return (
+    <div ref={hasMore ? loadMoreRef : null} className={`feed-load-more ${hasMore ? "" : "done"}`} aria-live="polite">
+      <span>{hasMore ? `已显示 ${visibleCount} / ${total} 条` : `已显示全部 ${total} 条`}</span>
+      {hasMore && <small>继续下滑加载下一批 20 条</small>}
+    </div>
+  );
+}
+
+function groupTimelineEvents(events) {
+  const groups = [];
+  const groupMap = new Map();
+  events.forEach((event, index) => {
+    const key = formatDayKey(event.lastSeenAt);
+    if (!groupMap.has(key)) {
+      const group = { key, label: formatDayLabel(event.lastSeenAt), items: [] };
+      groupMap.set(key, group);
+      groups.push(group);
+    }
+    groupMap.get(key).items.push({ event, rank: index + 1 });
+  });
+  return groups;
+}
+
+function EventTimelineItem({ event, rank, onOpenEvent, isRead }) {
+  const sourceNameById = Object.fromEntries(event.sources.map((source) => [source.id, source.name]));
+  const primaryItem = event.relatedItems[0];
+  const representativeItems = event.relatedItems.slice(0, 2);
+  const readable = eventReadableFields(event);
+  return (
+    <article
+      className={`timeline-item ${event.trend} ${isRead ? "read" : "unread"}`}
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpenEvent(event.id)}
+      onKeyDown={(keyboardEvent) => {
+        if (keyboardEvent.key === "Enter" || keyboardEvent.key === " ") onOpenEvent(event.id);
+      }}
+    >
+      <div className="timeline-time">
+        <strong>{formatClock(event.lastSeenAt)}</strong>
+        <span>{formatUpdateLabel(event.lastSeenAt)}</span>
+      </div>
+      <div className="timeline-node" aria-hidden="true" />
+      <div className="timeline-card">
+        <div className="timeline-card-head">
+          <span className="rank-chip">#{rank}</span>
           <Tag tone={categoryTone[event.category]}>{event.category}</Tag>
           <span className={`trend-chip ${event.trend}`}>{trendText(event.trend)}</span>
           <TrustBadge event={event} />
-          <span className="update-text">{formatTime(event.lastSeenAt)}</span>
+          <span className={`read-chip ${isRead ? "read" : "unread"}`}>{isRead ? "已读" : "未读"}</span>
         </div>
-        <button className="event-title-button" onClick={() => onOpenEvent(event.id)}>
-          {event.title}
-        </button>
-        <p className="content-preview">{event.summary}</p>
-        <div className="event-why">
-          <MessageSquareText size={15} />
-          <span>{event.whyItMatters}</span>
-        </div>
-        <div className="entity-row">
-          {event.entities.map((entity) => (
-            <span key={entity}>{entity}</span>
+        <h2>{readable.title}</h2>
+        {readable.summary && <p className="timeline-summary">{readable.summary}</p>}
+        {readable.why && (
+          <p className="timeline-why">
+            <CheckCircle2 size={15} />
+            <span>{readable.why}</span>
+          </p>
+        )}
+        <div className="timeline-evidence-row">
+          <span>
+            <BookOpen size={14} />
+            {sourceCoverageText(event)}
+          </span>
+          {representativeItems.map((item) => (
+            <span key={item.id}>{sourceItemLabel(item, sourceNameById)}</span>
           ))}
         </div>
-        <div className="source-preview">
-          <div>
-            <Database size={15} />
-            <strong>{event.sources.length} 个信源</strong>
-          </div>
-          {previewSources.map((source) => (
-            <span key={source.id}>{source.name}</span>
-          ))}
-        </div>
-        <div className="score-bars">
-          {Object.entries(event.scoreFactors)
-            .slice(0, 3)
-            .map(([key, factor]) => (
-              <div key={key}>
-                <span>{factor.label}</span>
-                <i>
-                  <b style={{ width: `${clamp(factor.value)}%` }} />
-                </i>
-                <strong>{factor.value}</strong>
-              </div>
+        <div className="timeline-footer">
+          <div className="entity-row compact-entities">
+            {event.entities.slice(0, 5).map((entity) => (
+              <span key={entity}>{entity}</span>
             ))}
-        </div>
-        <EvidenceLine event={event} compact />
-        <div className="event-card-actions">
-          <button onClick={() => onOpenEvent(event.id)}>
-            <FileText size={15} />
-            展开详情
-          </button>
-          <button onClick={() => onExplain(event.id)}>
-            <Bot size={15} />
-            AI 分析
-          </button>
+          </div>
+          <div className="event-card-actions">
+            <button
+              onClick={(clickEvent) => {
+                clickEvent.stopPropagation();
+                onOpenEvent(event.id);
+              }}
+            >
+              <FileText size={15} />
+              查看详情
+            </button>
+            {primaryItem && (
+              <a
+                href={primaryItem.url}
+                target="_blank"
+                rel="noreferrer"
+                className="secondary-source-link"
+                onClick={(clickEvent) => clickEvent.stopPropagation()}
+              >
+                <ExternalLink size={15} />
+                打开原文
+              </a>
+            )}
+          </div>
         </div>
       </div>
     </article>
   );
 }
 
+function SourceDisclosure({ event, compact = false }) {
+  const text = sourceDisclosureText(event);
+  if (!text) return null;
+  return (
+    <p className={`source-disclosure ${compact ? "compact" : ""}`}>
+      <Database size={14} />
+      <span>{text}</span>
+    </p>
+  );
+}
+
 function EvidenceLine({ event, compact = false }) {
   const highTrust = highTrustSourceCount(event);
-  const latest = formatTime(event.lastSeenAt);
+  const latest = formatUpdateLabel(event.lastSeenAt);
   return (
     <div className={`evidence-line ${compact ? "compact" : ""}`}>
       <span>
@@ -400,13 +616,12 @@ function EvidenceLine({ event, compact = false }) {
   );
 }
 
-function EventDrawer({ event, onClose, onExplain, llmState }) {
+function EventDrawer({ event, onClose }) {
   if (!event) return null;
   const timeline = [...event.relatedItems].sort((a, b) => new Date(a.publishedAt) - new Date(b.publishedAt));
   const sourceNameById = Object.fromEntries(event.sources.map((source) => [source.id, source.name]));
-  const llmText = llmState.eventId === event.id ? llmState.text : "";
-  const llmParagraphs = llmText.split(/\n+/).filter(Boolean);
-  const isLoading = llmState.loading && llmState.eventId === event.id;
+  const primaryItem = event.relatedItems[0];
+  const readable = eventReadableFields(event);
 
   return (
     <div className="drawer-backdrop" role="presentation" onMouseDown={onClose}>
@@ -416,48 +631,54 @@ function EventDrawer({ event, onClose, onExplain, llmState }) {
         </button>
         <div className="drawer-header">
           <Tag tone={categoryTone[event.category]}>{event.category}</Tag>
+          <span className={`trend-chip ${event.trend}`}>{trendText(event.trend)}</span>
           <TrustBadge event={event} />
-          <h2>{event.title}</h2>
-          <p>{event.summary}</p>
+          <h2>{readable.title}</h2>
+          {readable.summary && <p>{readable.summary}</p>}
+          <div className="drawer-actions">
+            {primaryItem && (
+              <a href={primaryItem.url} target="_blank" rel="noreferrer" className="drawer-source-link">
+                <ExternalLink size={15} />
+                打开原文
+              </a>
+            )}
+          </div>
         </div>
 
         <section className="drawer-section">
           <h3>为什么重要</h3>
-          <p>{event.whyItMatters}</p>
-        </section>
-
-        <section className="drawer-section">
-          <div className="section-row">
-            <h3>AI 分析</h3>
-            <button className="small-action" onClick={() => onExplain(event.id)}>
-              <Bot size={14} />
-              {isLoading ? "生成中" : "生成分析"}
-            </button>
-          </div>
-          {llmText ? (
-            <div className="llm-answer">
-              {llmParagraphs.map((paragraph) => (
-                <p key={paragraph}>{paragraph}</p>
+          <p>{readable.why || "目前抓到的信息还不足以提炼更多影响判断，建议先打开原文核验。"}</p>
+          {readable.bullets.length > 0 && (
+            <ul className="drawer-bullets">
+              {readable.bullets.map((item) => (
+                <li key={item}>
+                  <CheckCircle2 size={15} />
+                  <span>{item}</span>
+                </li>
               ))}
-            </div>
-          ) : (
-            <p className="muted">点击生成分析。模型只基于当前事件摘要、信源和证据，不替代原始来源。</p>
+            </ul>
           )}
         </section>
 
         <section className="drawer-section">
-          <h3>为什么上榜</h3>
-          <FactorList factors={event.scoreFactors} />
+          <h3>完整概要</h3>
+          <p>{readable.detail || "当前公开接口只提供标题、摘要或链接，暂未抓到更长正文；请通过下方来源打开原文查看完整内容。"}</p>
+        </section>
+
+        <section className="drawer-section">
+          <h3>来源判断</h3>
+          <EvidenceLine event={event} />
+          <SourceDisclosure event={event} />
         </section>
 
         <section className="drawer-section">
           <h3>事件时间线</h3>
           <div className="timeline">
-            {timeline.map((item) => (
+            {timeline.slice(0, 6).map((item) => (
               <article key={item.id}>
                 <time>{formatTime(item.publishedAt)}</time>
                 <div>
-                  <strong>{sourceNameById[item.sourceId] ?? item.platform}</strong>
+                  <strong>{sourceItemLabel(item, sourceNameById)}</strong>
                   <p>{item.title}</p>
                 </div>
               </article>
@@ -466,14 +687,32 @@ function EventDrawer({ event, onClose, onExplain, llmState }) {
         </section>
 
         <section className="drawer-section">
-          <h3>相关证据</h3>
-          <div className="source-list">
-            {event.relatedItems.map((item) => (
-              <a key={item.id} href={item.url} target="_blank" rel="noreferrer">
-                <span>{sourceNameById[item.sourceId] ?? item.platform}</span>
-                <strong>{item.title}</strong>
-              </a>
-            ))}
+          <h3>已抓到的内容</h3>
+          <div className="source-detail-list">
+            {timeline.map((item) => {
+              const snippet = sourceSnippetForDrawer(item, event, 260);
+              return (
+                <article key={item.id}>
+                  <div className="source-detail-meta">
+                    <time>{formatTime(item.publishedAt)}</time>
+                    <span>{sourceContextLabel(item, sourceNameById)}</span>
+                  </div>
+                  <div>
+                    <strong>{sourceItemLabel(item, sourceNameById)}</strong>
+                    <h4>{item.title}</h4>
+                    {snippet ? (
+                      <p>{snippet}</p>
+                    ) : (
+                      <p className="source-snippet-empty">这条来源没有提供区别于标题的正文摘录，建议直接打开原文查看完整内容。</p>
+                    )}
+                    <a href={item.url} target="_blank" rel="noreferrer">
+                      打开这一条来源
+                      <ExternalLink size={13} />
+                    </a>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </section>
       </aside>
@@ -481,101 +720,266 @@ function EventDrawer({ event, onClose, onExplain, llmState }) {
   );
 }
 
-function TrendSection({ events }) {
-  const rising = events.filter((event) => event.trend === "rising").slice(0, 3);
-  const watch = events.filter((event) => event.trend === "volatile" || event.status === "watch").slice(0, 2);
-  return (
-    <section className="side-card">
-      <SectionTitle eyebrow="Trend" title="趋势雷达" caption="看哪些正在升温，哪些还需要验证。" compact />
-      <div className="trend-list">
-        {[...rising, ...watch].map((event) => (
-          <article key={event.id}>
-            <span className={event.trend === "rising" ? "hot-dot" : "watch-dot"} />
-            <div>
-              <strong>{event.entities[0]}</strong>
-              <p>{trendText(event.trend)} · 热度 {event.hotScore}</p>
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
+function BriefPage({ article, dailies, events, onOpenEvent, navigateToPath }) {
+  const [activeCategory, setActiveCategory] = useState("全部");
+  const [copied, setCopied] = useState(false);
+  const eventById = useMemo(() => new Map(events.map((event) => [event.id, event])), [events]);
+  const categories = ["全部", ...article.sections.map((section) => section.category)];
+  const highlights = useMemo(() => (article.highlights ?? []).map((event) => hydrateBriefEvent(event, eventById)), [article.highlights, eventById]);
+  const leadStory = highlights[0] ?? null;
+  const secondaryStories = highlights.slice(1, 4);
+  const highlightedIds = useMemo(() => new Set(highlights.map((event) => event.id)), [highlights]);
+  const sections = useMemo(() => {
+    const sourceSections =
+      activeCategory === "全部"
+        ? article.sections
+        : article.sections.filter((section) => section.category === activeCategory);
+    return sourceSections
+      .map((section) => ({
+        ...section,
+        events: section.events
+          .map((event) => hydrateBriefEvent(event, eventById))
+          .filter((event) => activeCategory !== "全部" || !highlightedIds.has(event.id))
+      }))
+      .filter((section) => section.events.length > 0);
+  }, [activeCategory, article.sections, eventById, highlightedIds]);
+  const watchStories = useMemo(() => {
+    const cooling = events.filter((event) => event.trend === "cooling").slice(0, 2).map(toFallbackBriefEvent);
+    return dedupeEvents([...(article.watchList ?? []), ...cooling].map((event) => hydrateBriefEvent(event, eventById))).slice(0, 5);
+  }, [article.watchList, eventById, events]);
+  const allVisibleStories = [
+    ...(leadStory ? [leadStory] : []),
+    ...secondaryStories,
+    ...sections.flatMap((section) => section.events),
+    ...watchStories
+  ];
+  const footnotes = buildBriefFootnotes(allVisibleStories);
+  const editionNumber = editionNumberFromId(article.id);
+  const issueDate = formatNewspaperDate(article.windowEnd || article.generatedAt || article.id);
+  const issueRange = `${formatDate(article.windowStart)} - ${formatDate(article.windowEnd)}`;
 
-function BriefEntry({ brief, onOpenEvent }) {
-  const items = brief.sections.flatMap((section) => section.events.slice(0, 1)).slice(0, 4);
+  async function copyShareLink() {
+    const sharePath = article.shortPath || `/brief/${article.id}`;
+    const shareUrl = new URL(sharePath, window.location.origin).href;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+      } else {
+        copyTextFallback(shareUrl);
+      }
+    } catch {
+      copyTextFallback(shareUrl);
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  }
+
   return (
-    <section className="side-card brief-entry">
-      <SectionTitle eyebrow="Daily Brief" title="今日简报" caption={formatTime(brief.generatedAt)} compact />
-      <div className="brief-list">
-        {items.map((event) => (
-          <button key={event.id} onClick={() => onOpenEvent(event.id)}>
-            <strong>{event.title}</strong>
-            <span>{event.category} · 精选分 {event.selectedScore}</span>
+    <main className="brief-shell newspaper-shell">
+      <aside className="brief-sidebar">
+        <section>
+          <h2>筛选</h2>
+          <div className="brief-filter-list">
+            {categories.map((category) => (
+              <button key={category} className={activeCategory === category ? "active" : ""} onClick={() => setActiveCategory(category)}>
+                {category}
+              </button>
+            ))}
+          </div>
+        </section>
+        <section>
+          <h2>以往每日简报</h2>
+          <div className="brief-history-list">
+            {dailies.map((item) => (
+              <button
+                key={item.id}
+                className={item.id === article.id ? "active" : ""}
+                onClick={() => navigateToPath(`/brief/${item.id}`)}
+              >
+                <strong>{item.id}</strong>
+                <span>{item.eventCount} 条 · {formatDate(item.windowStart)} - {formatDate(item.windowEnd)}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      </aside>
+
+      <article className="brief-article newspaper-edition">
+        <header className="newspaper-masthead">
+          <div className="newspaper-topline">
+            <span>第 {editionNumber} 期</span>
+            <span>{issueDate}</span>
+            <span>{browserTimeZoneLabel()}</span>
+          </div>
+          <div className="newspaper-nameplate">
+            <span>AI</span>
+            <h1>NEWS DAILY</h1>
+            <span>24H</span>
+          </div>
+          <div className="newspaper-subline">
+            <span>AI 科技日报</span>
+            <span>{issueRange}</span>
+            <span>{article.eventCount} 条入选 · {article.sourceCount} 个信源</span>
+          </div>
+        </header>
+
+        <div className="newspaper-actions-row">
+          <p>{article.lead}</p>
+          <button className="brief-share-button" onClick={copyShareLink}>
+            <ExternalLink size={15} />
+            {copied ? "已复制短链" : "复制分享短链"}
           </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function SearchSuggestion({ query, setQuery }) {
-  const suggestions = ["Agent", "语音模型", "开源生态", "API 价格"];
-  return (
-    <section className="side-card">
-      <SectionTitle eyebrow="Explore" title="快速探索" caption="用普通关键词开始，不需要懂数据字段。" compact />
-      <div className="suggestion-list">
-        {suggestions.map((item) => (
-          <button key={item} className={query === item ? "active" : ""} onClick={() => setQuery(item)}>
-            {item}
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function BriefPage({ brief, events, onOpenEvent }) {
-  return (
-    <main className="simple-page">
-      <SectionTitle eyebrow="Daily Brief" title={brief.title} caption={`生成时间 ${formatTime(brief.generatedAt)}`} />
-      <div className="brief-page-grid">
-        {brief.sections.map((section) => (
-          <section key={section.category} className="brief-section-card">
-            <h2>{section.category}</h2>
-            {section.events.length ? (
-              section.events.map((event) => (
-                <button key={event.id} onClick={() => onOpenEvent(event.id)}>
-                  <strong>{event.title}</strong>
-                  <p>{event.whyItMatters}</p>
-                </button>
-              ))
-            ) : (
-              <p className="muted">当前没有进入日报的事件。</p>
-            )}
-          </section>
-        ))}
-      </div>
-      <section className="brief-section-card full">
-        <h2>持续观察</h2>
-        <div className="watch-grid">
-          {[...brief.watchList, ...events.filter((event) => event.trend === "cooling").slice(0, 2)].map((event) => (
-            <button key={event.id} onClick={() => onOpenEvent(event.id)}>
-              <TrustBadge event={event} />
-              <strong>{event.title}</strong>
-              <span>{event.summary}</span>
-            </button>
-          ))}
         </div>
-      </section>
+
+        <div className="daily-article-body newspaper-body">
+          {leadStory && activeCategory === "全部" && (
+            <section className="newspaper-frontpage">
+              <NewspaperLeadStory event={leadStory} onOpenEvent={onOpenEvent} />
+              <aside className="newspaper-briefs">
+                <span className="newspaper-section-label">INSIDE TODAY</span>
+                <h2>今日侧栏</h2>
+                {secondaryStories.map((event, index) => (
+                  <NewspaperBriefItem key={event.id} event={event} index={index + 1} onOpenEvent={onOpenEvent} />
+                ))}
+              </aside>
+            </section>
+          )}
+
+          <section className="newspaper-section-map">
+            <span className="newspaper-section-label">SECTIONS</span>
+            <div>
+              {sections.map((section) => (
+                <a key={section.category} href={`#daily-${section.category}`}>
+                  {section.category}
+                  <small>{section.events.length}</small>
+                </a>
+              ))}
+            </div>
+          </section>
+
+          {sections.map((section, index) => (
+            <NewspaperSection key={section.category} section={section} index={index + 1} onOpenEvent={onOpenEvent} />
+          ))}
+
+          {watchStories.length > 0 && (
+            <section className="newspaper-watch-strip">
+              <div>
+                <span className="newspaper-section-label">WATCH LIST</span>
+                <h2>持续观察</h2>
+              </div>
+              <div className="newspaper-watch-grid">
+                {watchStories.map((event, index) => (
+                  <NewspaperBriefItem key={event.id} event={event} index={index + 1} onOpenEvent={onOpenEvent} compact />
+                ))}
+              </div>
+            </section>
+          )}
+
+          <SourceFootnotes footnotes={footnotes} />
+        </div>
+      </article>
     </main>
+  );
+}
+
+function NewspaperLeadStory({ event, onOpenEvent }) {
+  const summary = storySummary(event);
+  const why = storyWhy(event);
+  return (
+    <button className="newspaper-lead-story" onClick={() => onOpenEvent(event.id)}>
+      <span className="newspaper-section-label">LEAD STORY</span>
+      <h2>{event.title}</h2>
+      {summary && <p className="newspaper-lead-summary">{summary}</p>}
+      {why && (
+        <p className="newspaper-importance">
+          <strong>为什么重要</strong>
+          <span>{why}</span>
+        </p>
+      )}
+      <div className="newspaper-story-meta">
+        <span>{event.category}</span>
+        <span>{event.trustLabel}</span>
+        <span>{sourceBriefText(event)}</span>
+        {event.lastSeenAt && <span>{formatUpdatedText(event.lastSeenAt)}</span>}
+      </div>
+    </button>
+  );
+}
+
+function NewspaperSection({ section, index, onOpenEvent }) {
+  return (
+    <section className="newspaper-news-section" id={`daily-${section.category}`}>
+      <header>
+        <span>{String(index).padStart(2, "0")}</span>
+        <div>
+          <small>{section.events.length} 条</small>
+          <h2>{section.category}</h2>
+        </div>
+      </header>
+      <div className="newspaper-column-grid">
+        {section.events.map((event, eventIndex) => (
+          <NewspaperArticle key={event.id} event={event} index={eventIndex + 1} onOpenEvent={onOpenEvent} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function NewspaperArticle({ event, index, onOpenEvent }) {
+  const summary = storySummary(event);
+  const why = storyWhy(event);
+  return (
+    <button className="newspaper-article-card" onClick={() => onOpenEvent(event.id)}>
+      <span className="newspaper-article-number">{String(index).padStart(2, "0")}</span>
+      <div className="newspaper-story-meta">
+        <span>{event.trustLabel}</span>
+        <span>{sourceBriefText(event)}</span>
+      </div>
+      <h3>{event.title}</h3>
+      {summary && <p>{summary}</p>}
+      {why && <small>重要性：{why}</small>}
+    </button>
+  );
+}
+
+function NewspaperBriefItem({ event, index, onOpenEvent, compact = false }) {
+  return (
+    <button className={`newspaper-brief-item ${compact ? "compact" : ""}`} onClick={() => onOpenEvent(event.id)}>
+      <span>{String(index).padStart(2, "0")}</span>
+      <div>
+        <strong>{event.title}</strong>
+        <small>{event.category} · {event.trustLabel} · {sourceBriefText(event)}</small>
+      </div>
+    </button>
+  );
+}
+
+function SourceFootnotes({ footnotes }) {
+  if (!footnotes.length) return null;
+  return (
+    <footer className="newspaper-footnotes">
+      <div>
+        <span className="newspaper-section-label">SOURCE NOTES</span>
+        <h2>来源脚注</h2>
+      </div>
+      <ol>
+        {footnotes.map((item, index) => (
+          <li key={item.url || `${item.label}-${index}`}>
+            <a href={item.url} target="_blank" rel="noreferrer">
+              [{index + 1}] {item.label}
+            </a>
+            <span>{item.context}</span>
+          </li>
+        ))}
+      </ol>
+    </footer>
   );
 }
 
 function SourcesPage({ sources, sourceMix }) {
   return (
     <main className="simple-page">
-      <SectionTitle eyebrow="Sources" title="信源说明" caption="首页只给普通用户看可信提示，详细等级保留在这里。" />
+      <SectionTitle title="信源说明" caption="当前接入的公开来源，以及每类来源适合用来判断什么。" />
       <div className="source-explain-grid">
         <article>
           <ShieldCheck size={22} />
@@ -594,7 +998,7 @@ function SourcesPage({ sources, sourceMix }) {
         </article>
       </div>
       <section className="source-table-card">
-        <h2>当前模拟信源</h2>
+        <h2>当前真实信源</h2>
         <table>
           <thead>
             <tr>
@@ -603,6 +1007,7 @@ function SourcesPage({ sources, sourceMix }) {
               <th>平台</th>
               <th>类型</th>
               <th>24h</th>
+              <th>状态</th>
             </tr>
           </thead>
           <tbody>
@@ -613,6 +1018,7 @@ function SourcesPage({ sources, sourceMix }) {
                 <td>{source.platform}</td>
                 <td>{source.type}</td>
                 <td>{source.items24h}</td>
+                <td>{source.lastFetchStatus ?? "内置"}</td>
               </tr>
             ))}
           </tbody>
@@ -682,7 +1088,7 @@ function AdminPage({ snapshot, onRecompute, onOpenEvent }) {
 function SectionTitle({ eyebrow, title, caption, compact = false }) {
   return (
     <div className={`section-title ${compact ? "compact" : ""}`}>
-      <span>{eyebrow}</span>
+      {eyebrow && <span>{eyebrow}</span>}
       <h2>{title}</h2>
       {caption && <p>{caption}</p>}
     </div>
@@ -741,37 +1147,515 @@ function highTrustSourceCount(event) {
   return event.sources.filter((source) => source.tier === "T1" || source.tier === "T1.5").length;
 }
 
+function sourceCoverageText(event) {
+  const highTrust = highTrustSourceCount(event);
+  const sourceNames = event.sources
+    .slice(0, 3)
+    .map((source) => source.name)
+    .filter(Boolean)
+    .join(" / ");
+  if (!event.sources.length) return "暂无明确来源";
+  if (event.sources.length === 1) {
+    return `${highTrust ? "1 个高可信来源" : "1 个来源"}${sourceNames ? ` · ${sourceNames}` : ""}`;
+  }
+  return `${event.sources.length} 个来源 · ${highTrust} 个高可信${sourceNames ? ` · ${sourceNames}` : ""}`;
+}
+
+function displayTitle(event) {
+  const title = cleanText(event.title, 90);
+  const summary = cleanText(event.editorSummary || event.summary, 46).replace(/[。.!！?？]+$/g, "");
+  if (isMostlyLatin(title) && hasCjk(summary)) return summary;
+  return title;
+}
+
+function isMostlyLatin(value) {
+  const text = String(value ?? "").replace(/\s+/g, "");
+  if (!text) return false;
+  const latin = (text.match(/[A-Za-z0-9]/g) ?? []).length;
+  const cjk = (text.match(/[\u3400-\u9fff]/g) ?? []).length;
+  return latin > 0 && latin > cjk * 2;
+}
+
+function hasCjk(value) {
+  return /[\u3400-\u9fff]/.test(String(value ?? ""));
+}
+
+function eventBullets(event) {
+  const candidates = [
+    ...(event.editorBullets ?? []),
+    ...(event.relatedItems ?? []).flatMap((item) => [sourceSnippet(item, 130), item.title])
+  ];
+  return dedupeText(
+    candidates
+      .map((item) => cleanText(item, 130))
+      .filter(
+        (item) =>
+          item &&
+          normalizeText(item) !== normalizeText(event.title) &&
+          normalizeText(item) !== normalizeText(event.editorInsight) &&
+          normalizeText(item) !== normalizeText(event.editorSummary || event.summary)
+      )
+  ).slice(0, 3);
+}
+
+function eventReadableFields(event) {
+  const title = displayTitle(event);
+  const summary = pickDistinctText(
+    [
+      event.editorSummary,
+      event.summary,
+      ...(event.relatedItems ?? []).map((item) => item.summary)
+    ],
+    [title],
+    190
+  );
+  const why = pickDistinctText(
+    [event.editorInsight, ...(event.editorBullets ?? []), ...eventBullets(event)],
+    [title, summary],
+    150
+  );
+  const bullets = eventBullets(event).filter((item) => !isDuplicateText(item, [title, summary, why])).slice(0, 3);
+  const detail = pickDistinctText(
+    [
+      event.editorDetail,
+      ...bullets,
+      ...(event.relatedItems ?? []).map((item) => item.summary)
+    ],
+    [title, summary, why],
+    300
+  );
+  return { title, summary, why, detail, bullets };
+}
+
+function sourceSnippet(item, maxLength = 180) {
+  const summary = cleanText(item.summary, maxLength);
+  if (summary && normalizeText(summary) !== normalizeText(item.title)) return summary;
+  return cleanText(item.title, maxLength);
+}
+
+function sourceSnippetForDrawer(item, event, maxLength = 240) {
+  return pickDistinctText(
+    [item.summary],
+    [
+      item.title,
+      displayTitle(event),
+      event.editorSummary,
+      event.summary,
+      event.editorInsight,
+      event.editorDetail,
+      ...(event.editorBullets ?? [])
+    ],
+    maxLength
+  );
+}
+
+function sourceItemLabel(item, sourceNameById) {
+  const sourceName = sourceNameById[item.sourceId] ?? item.platform;
+  if (item.originalSource && !/^HN points/i.test(item.originalSource)) {
+    return isXUrl(item) && !/^X[:：]/i.test(item.originalSource) ? `X：${item.originalSource}` : item.originalSource;
+  }
+  return sourceName;
+}
+
+function sourceContextLabel(item, sourceNameById) {
+  const sourceName = sourceNameById[item.sourceId] ?? item.platform;
+  const originalSource = item.originalSource || "";
+  if (item.platform === "AIHOT" && (isXUrl(item) || /^X[:：]/i.test(originalSource))) return `${sourceName} 整理/翻译`;
+  if (item.platform === "AIHOT") return `${sourceName} 聚合整理`;
+  if (isXUrl(item)) return "X 原帖";
+  if (/youtube\.com|youtu\.be/i.test(item.url)) return "视频标题/说明";
+  if (/github\.com/i.test(item.url)) return "代码仓库/发布页";
+  if (/arxiv\.org/i.test(item.url)) return "论文页";
+  return item.platform;
+}
+
+function sourceDisclosureText(event) {
+  const aihotXCount = (event.relatedItems ?? []).filter(
+    (item) => item.platform === "AIHOT" && (isXUrl(item) || /^X[:：]/i.test(item.originalSource || ""))
+  ).length;
+  if (aihotXCount) {
+    return `${aihotXCount} 条 X 来源来自 AIHOT 聚合源，标题和摘要可能已被中文整理；“打开原文”会跳到对应 X 页面核验。`;
+  }
+  const aggregatorCount = (event.sources ?? []).filter((source) => source.type === "aggregator").length;
+  if (aggregatorCount) return "包含聚合源整理内容，建议把聚合摘要和原始链接一起看。";
+  return "";
+}
+
+function isXUrl(item) {
+  return /(^|\.)x\.com\/|twitter\.com\//i.test(item.url || "");
+}
+
+function cleanText(value, maxLength = 180) {
+  const text = String(value ?? "")
+    .replace(/\s+/g, " ")
+    .replace(/https?\s*[：:]\s*\/\/\S+/gi, "")
+    .trim();
+  if (!text) return "";
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
+}
+
+function normalizeText(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function dedupeText(values) {
+  const seen = new Set();
+  const result = [];
+  for (const value of values) {
+    const key = normalizeText(value);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(value);
+  }
+  return result;
+}
+
 function trendText(trend) {
   return {
     rising: "正在升温",
     cooling: "热度回落",
     volatile: "持续观察",
-    steady: "稳定传播"
+    steady: "稳定传播",
+    watch: "持续观察"
   }[trend] ?? trend;
 }
 
-function scoreTone(score) {
-  if (score >= 78) return "hot";
-  if (score >= 68) return "warm";
-  return "cool";
+function articleFromSnapshot(snapshot) {
+  const brief = snapshot.dailyBrief;
+  const sections = brief.sections.map((section) => ({
+    category: section.category,
+    events: section.events.map(toFallbackBriefEvent)
+  }));
+  const highlights = sections.flatMap((section) => section.events).slice(0, 4);
+  return {
+    id: new Date(brief.generatedAt).toISOString().slice(0, 10),
+    shortCode: "today",
+    shortPath: "/brief",
+    title: brief.title,
+    subtitle: "04:00 自动汇总过去 24 小时的 AI 和科技热点",
+    generatedAt: brief.generatedAt,
+    scheduledAt: brief.generatedAt,
+    windowStart: new Date(new Date(brief.generatedAt).getTime() - 24 * 60 * 60 * 1000).toISOString(),
+    windowEnd: brief.generatedAt,
+    eventCount: highlights.length,
+    sourceCount: new Set(highlights.map((event) => event.id)).size,
+    lead: highlights[0]?.summary || "今日简报正在生成中。",
+    highlights,
+    sections,
+    watchList: brief.watchList.map(toFallbackBriefEvent),
+    tags: []
+  };
+}
+
+function toFallbackBriefEvent(event) {
+  return {
+    id: event.id,
+    title: displayTitle(event),
+    category: event.category,
+    summary: event.editorSummary || event.summary,
+    insight: event.editorInsight || event.editorSummary || event.summary,
+    trustLabel: trustLabel(event),
+    lastSeenAt: event.lastSeenAt,
+    sourceCount: event.sources?.length ?? event.sourceIds?.length ?? 0,
+    highTrustSourceCount: highTrustSourceCount(event),
+    primaryUrl: event.relatedItems?.[0]?.url ?? ""
+  };
+}
+
+function hydrateBriefEvent(event, eventById) {
+  const fullEvent = eventById.get(event.id);
+  if (!fullEvent) {
+    return {
+      ...event,
+      title: cleanText(event.title, 120),
+      summary: cleanText(event.summary, 180),
+      insight: cleanText(event.insight, 120),
+      fullEvent: null
+    };
+  }
+
+  return {
+    ...event,
+    title: displayTitle(fullEvent),
+    category: fullEvent.category || event.category,
+    summary: fullEvent.editorSummary || event.summary || fullEvent.summary,
+    insight: fullEvent.editorInsight || event.insight,
+    trustLabel: trustLabel(fullEvent),
+    lastSeenAt: fullEvent.lastSeenAt || event.lastSeenAt,
+    sourceCount: fullEvent.sources?.length ?? event.sourceCount ?? 0,
+    highTrustSourceCount: highTrustSourceCount(fullEvent),
+    primaryUrl: fullEvent.relatedItems?.[0]?.url ?? event.primaryUrl ?? "",
+    fullEvent
+  };
+}
+
+function storySummary(event) {
+  return pickDistinctText(
+    [
+      event.summary,
+      event.fullEvent?.editorSummary,
+      event.fullEvent?.summary,
+      event.fullEvent?.relatedItems?.find((item) => normalizeText(item.summary) !== normalizeText(item.title))?.summary
+    ],
+    [event.title, event.insight],
+    210
+  );
+}
+
+function storyWhy(event) {
+  return pickDistinctText(
+    [
+      event.insight,
+      event.fullEvent?.editorInsight,
+      event.fullEvent?.editorBullets?.[0],
+      event.fullEvent ? eventBullets(event.fullEvent)[0] : ""
+    ],
+    [event.title, event.summary],
+    140
+  );
+}
+
+function sourceBriefText(event) {
+  const sourceCount = event.fullEvent?.sources?.length ?? event.sourceCount ?? 0;
+  const highTrust = event.fullEvent ? highTrustSourceCount(event.fullEvent) : event.highTrustSourceCount ?? 0;
+  if (!sourceCount) return "来源待补";
+  if (sourceCount === 1) return highTrust ? "1 个高可信来源" : "1 个来源";
+  return `${sourceCount} 个来源 · ${highTrust} 个高可信`;
+}
+
+function buildBriefFootnotes(stories) {
+  const items = [];
+  const seen = new Set();
+  for (const story of stories) {
+    const relatedItems = story.fullEvent?.relatedItems ?? [];
+    const sourceNameById = Object.fromEntries((story.fullEvent?.sources ?? []).map((source) => [source.id, source.name]));
+    for (const item of relatedItems) {
+      const url = item.url || "";
+      const key = url || `${story.id}:${item.id}`;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      items.push({
+        label: sourceItemLabel(item, sourceNameById),
+        context: sourceContextLabel(item, sourceNameById),
+        url
+      });
+      if (items.length >= 12) return items;
+    }
+  }
+  return items;
+}
+
+function dedupeEvents(events) {
+  const seen = new Set();
+  const result = [];
+  for (const event of events) {
+    if (!event.id || seen.has(event.id)) continue;
+    seen.add(event.id);
+    result.push(event);
+  }
+  return result;
+}
+
+function pickDistinctText(candidates, blockers = [], maxLength = 180) {
+  const normalizedBlockers = blockers.map(normalizeText).filter(Boolean);
+  for (const candidate of candidates.flat().filter(Boolean)) {
+    const text = cleanText(candidate, maxLength);
+    const normalized = normalizeText(text);
+    if (!normalized) continue;
+    const repeatsBlocker = normalizedBlockers.some((blocker) => isNearDuplicateKey(normalized, blocker));
+    if (!repeatsBlocker) return text;
+  }
+  return "";
+}
+
+function isDuplicateText(value, blockers = []) {
+  const normalized = normalizeText(value);
+  if (!normalized) return true;
+  return blockers.map(normalizeText).filter(Boolean).some((blocker) => isNearDuplicateKey(normalized, blocker));
+}
+
+function isNearDuplicateKey(a, b) {
+  if (!a || !b) return false;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length > b.length ? a : b;
+  return a === b || longer.includes(shorter) || shorter.length / longer.length > 0.72 && longestCommonPrefixLength(a, b) / shorter.length > 0.72;
+}
+
+function longestCommonPrefixLength(a, b) {
+  let index = 0;
+  while (index < a.length && index < b.length && a[index] === b[index]) index += 1;
+  return index;
+}
+
+function editionNumberFromId(id) {
+  const date = toValidDate(id);
+  if (!date) return "000";
+  const yearStart = Date.UTC(date.getUTCFullYear(), 0, 1);
+  const dayOfYear = Math.floor((date.getTime() - yearStart) / (24 * 60 * 60 * 1000)) + 1;
+  return String(dayOfYear).padStart(3, "0");
+}
+
+function formatNewspaperDate(value) {
+  const date = toValidDate(value);
+  if (!date) return "日期待定";
+  return new Intl.DateTimeFormat(getBrowserLocale(), {
+    timeZone: getBrowserTimeZone(),
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "long"
+  }).format(date);
+}
+
+function loadThemeMode() {
+  const stored = localStorage.getItem(THEME_STORAGE_KEY);
+  return ["system", "light", "dark"].includes(stored) ? stored : "system";
+}
+
+function loadReadState() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(READ_STATE_STORAGE_KEY) || "{}");
+    return {
+      readIds: Array.isArray(parsed.readIds) ? parsed.readIds : [],
+      lastReadEventId: parsed.lastReadEventId || "",
+      lastReadAt: parsed.lastReadAt || ""
+    };
+  } catch {
+    return { readIds: [], lastReadEventId: "", lastReadAt: "" };
+  }
+}
+
+function markEventRead(current, eventId) {
+  const readIds = current.readIds.includes(eventId) ? current.readIds : [eventId, ...current.readIds].slice(0, 500);
+  return {
+    readIds,
+    lastReadEventId: eventId,
+    lastReadAt: new Date().toISOString()
+  };
+}
+
+function copyTextFallback(text) {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
+}
+
+function getBrowserLocale() {
+  return typeof navigator === "undefined" ? "zh-CN" : navigator.language || "zh-CN";
+}
+
+function getBrowserTimeZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai";
+  } catch {
+    return "Asia/Shanghai";
+  }
+}
+
+function browserTimeZoneLabel(value = new Date()) {
+  const timeZone = getBrowserTimeZone();
+  try {
+    const offsetPart = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      timeZoneName: "shortOffset"
+    })
+      .formatToParts(new Date(value))
+      .find((part) => part.type === "timeZoneName")?.value;
+    if (offsetPart) return offsetPart.replace("GMT", "UTC");
+  } catch {
+    // Some Safari/Chromium builds do not expose shortOffset; fall back to the IANA name.
+  }
+  return timeZone;
+}
+
+function toValidDate(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function formatTime(value) {
-  return new Intl.DateTimeFormat("zh-CN", {
+  const date = toValidDate(value);
+  if (!date) return "时间未知";
+  return new Intl.DateTimeFormat(getBrowserLocale(), {
+    timeZone: getBrowserTimeZone(),
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(value));
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
 }
 
-function cleanLlmText(text) {
-  return String(text ?? "")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/^\s*[-*]\s+/gm, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+function formatDate(value) {
+  const date = toValidDate(value);
+  if (!date) return "未知日期";
+  return new Intl.DateTimeFormat(getBrowserLocale(), {
+    timeZone: getBrowserTimeZone(),
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
+}
+
+function formatClock(value) {
+  const date = toValidDate(value);
+  if (!date) return "--:--";
+  return new Intl.DateTimeFormat(getBrowserLocale(), {
+    timeZone: getBrowserTimeZone(),
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
+}
+
+function formatDayKey(value) {
+  const date = toValidDate(value);
+  if (!date) return "unknown";
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: getBrowserTimeZone(),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
+}
+
+function formatDayLabel(value) {
+  const date = toValidDate(value);
+  if (!date) return "时间未知";
+  return new Intl.DateTimeFormat(getBrowserLocale(), {
+    timeZone: getBrowserTimeZone(),
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short"
+  }).format(date);
+}
+
+function formatUpdateLabel(value) {
+  const date = toValidDate(value);
+  if (!date) return "时间未知";
+  const diffMs = Date.now() - date.getTime();
+  if (diffMs >= 0 && diffMs < 60 * 1000) return "刚刚";
+  if (diffMs >= 0 && diffMs < 60 * 60 * 1000) return `${Math.max(1, Math.floor(diffMs / 60000))} 分钟前`;
+  if (diffMs >= 0 && diffMs < 24 * 60 * 60 * 1000) return `${Math.max(1, Math.floor(diffMs / 36e5))} 小时前`;
+  if (diffMs >= 0 && diffMs < 48 * 60 * 60 * 1000) return `昨天 ${formatClock(value)}`;
+  return formatTime(value);
+}
+
+function formatUpdatedText(value) {
+  const label = formatUpdateLabel(value);
+  if (label === "刚刚") return "刚刚更新";
+  if (label === "时间未知") return label;
+  return `${label} 更新`;
 }
 
 function clamp(value) {
