@@ -1,0 +1,68 @@
+name: Server Config
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "inspect or configure"
+        required: true
+        default: "inspect"
+        type: choice
+        options:
+          - inspect
+          - configure
+
+jobs:
+  server-config:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/radar_deploy_key
+          chmod 600 ~/.ssh/radar_deploy_key
+          for attempt in 1 2 3 4 5; do
+            ssh-keyscan -T 10 -p "$DEPLOY_PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts && break
+            sleep 5
+          done
+
+      - name: Inspect or configure server
+        env:
+          MODE: ${{ inputs.mode }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          set -euo pipefail
+          SSH_OPTS="-i ~/.ssh/radar_deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -p $DEPLOY_PORT"
+          for attempt in 1 2 3 4 5; do
+            ssh $SSH_OPTS "$DEPLOY_USER@$DEPLOY_HOST" "RADAR_CONFIG_MODE='$MODE' bash -s" <<'REMOTE' && break
+              set -euo pipefail
+              echo "mode=${RADAR_CONFIG_MODE}"
+              echo "== host =="
+              hostname
+              date
+              echo "== pm2 =="
+              pm2 list || true
+              echo "== ports =="
+              ss -ltnp | grep -E ':(80|81|443|8787)\b' || true
+              echo "== docker =="
+              docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}' || true
+              echo "== npm mounts =="
+              docker inspect de_npm --format '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}' || true
+              echo "== npm data =="
+              docker exec de_npm sh -lc 'ls -la /data; command -v sqlite3 || true; find /data -maxdepth 3 -type f | sort | sed -n "1,120p"' || true
+              echo "== npm sqlite schema =="
+              docker exec de_npm sh -lc 'sqlite3 /data/database.sqlite ".tables" 2>/dev/null || true; sqlite3 /data/database.sqlite ".schema proxy_host" 2>/dev/null || true' || true
+              echo "== npm proxy rows =="
+              docker exec de_npm sh -lc 'sqlite3 /data/database.sqlite "select id,domain_names,forward_scheme,forward_host,forward_port,enabled,certificate_id from proxy_host;" 2>/dev/null || true' || true
+          REMOTE
+            sleep 8
+          done
