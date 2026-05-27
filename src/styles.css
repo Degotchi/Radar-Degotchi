@@ -6910,6 +6910,49 @@ body,
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
 }
 
+.language-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  min-height: 34px;
+  border-left: 1px solid var(--rule, rgba(78, 66, 48, 0.28));
+  border-right: 1px solid var(--rule, rgba(78, 66, 48, 0.28));
+}
+
+.language-switcher button {
+  min-width: 40px;
+  height: 32px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  background: transparent;
+  font-family: var(--sans, inherit);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.language-switcher button + button {
+  border-left: 1px solid var(--rule, rgba(78, 66, 48, 0.2));
+}
+
+.language-switcher button.active {
+  border-bottom-color: var(--accent, #9b1d1d);
+  color: var(--ink, var(--text));
+}
+
+:root[data-theme="dark"] .language-switcher {
+  border-color: var(--rule);
+}
+
+:root[data-theme="dark"] .language-switcher button {
+  color: var(--muted);
+}
+
+:root[data-theme="dark"] .language-switcher button.active {
+  color: var(--ink);
+}
+
 .theme-reveal-overlay {
   position: fixed;
   inset: 0;

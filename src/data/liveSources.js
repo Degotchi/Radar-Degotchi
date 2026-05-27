@@ -74,6 +74,18 @@ export const liveSourceConfigs = [
     category: "论文研究"
   },
   {
+    id: "live-google-deepmind",
+    name: "Google DeepMind Blog",
+    url: "https://deepmind.google/blog/rss.xml",
+    parser: "rss",
+    platform: "RSS",
+    tier: "T1",
+    type: "official_blog",
+    owner: "Google DeepMind",
+    weight: 1.16,
+    category: "模型发布"
+  },
+  {
     id: "live-github-blog-ai",
     name: "GitHub Blog AI",
     url: "https://github.blog/tag/ai/feed/",
@@ -134,6 +146,54 @@ export const liveSourceConfigs = [
     category: "论文研究"
   },
   {
+    id: "live-bair-blog",
+    name: "BAIR Blog",
+    url: "https://bair.berkeley.edu/blog/feed.xml",
+    parser: "rss",
+    platform: "RSS",
+    tier: "T1.5",
+    type: "research_news",
+    owner: "UC Berkeley BAIR",
+    weight: 1,
+    category: "论文研究"
+  },
+  {
+    id: "live-mit-tech-review-ai",
+    name: "MIT Technology Review AI",
+    url: "https://www.technologyreview.com/topic/artificial-intelligence/feed/",
+    parser: "rss",
+    platform: "RSS",
+    tier: "T1.5",
+    type: "media",
+    owner: "MIT Technology Review",
+    weight: 0.96,
+    category: "行业动态"
+  },
+  {
+    id: "live-sciencedaily-ai",
+    name: "ScienceDaily AI",
+    url: "https://www.sciencedaily.com/rss/computers_math/artificial_intelligence.xml",
+    parser: "rss",
+    platform: "RSS",
+    tier: "T1.5",
+    type: "research_news",
+    owner: "ScienceDaily",
+    weight: 0.94,
+    category: "论文研究"
+  },
+  {
+    id: "live-nature-ml",
+    name: "Nature Machine Learning",
+    url: "https://www.nature.com/subjects/machine-learning.rss",
+    parser: "rss",
+    platform: "RSS",
+    tier: "T1.5",
+    type: "research_news",
+    owner: "Nature",
+    weight: 1,
+    category: "论文研究"
+  },
+  {
     id: "live-microsoft-ai-blog",
     name: "Microsoft AI Blog",
     url: "https://blogs.microsoft.com/ai/feed/",
@@ -168,6 +228,42 @@ export const liveSourceConfigs = [
     owner: "Latent Space",
     weight: 0.94,
     category: "技巧与观点"
+  },
+  {
+    id: "live-simonw",
+    name: "Simon Willison",
+    url: "https://simonwillison.net/atom/everything/",
+    parser: "atom",
+    platform: "Newsletter",
+    tier: "T2",
+    type: "newsletter",
+    owner: "Simon Willison",
+    weight: 0.92,
+    category: "技巧与观点"
+  },
+  {
+    id: "live-import-ai",
+    name: "Import AI",
+    url: "https://jack-clark.net/feed/",
+    parser: "rss",
+    platform: "Newsletter",
+    tier: "T2",
+    type: "newsletter",
+    owner: "Jack Clark",
+    weight: 0.9,
+    category: "行业动态"
+  },
+  {
+    id: "live-together-ai",
+    name: "Together AI Blog",
+    url: "https://www.together.ai/blog/rss.xml",
+    parser: "rss",
+    platform: "RSS",
+    tier: "T1.5",
+    type: "official_blog",
+    owner: "Together AI",
+    weight: 1,
+    category: "产品更新"
   },
   {
     id: "live-the-decoder",
@@ -464,10 +560,10 @@ function parseXmlFeed(config, xml) {
       normalizeRawItem(config, {
         externalId: tagText(block, "guid") || tagText(block, "link") || tagText(block, "title"),
         title: tagText(block, "title"),
-        summary: tagText(block, "description") || tagText(block, "content:encoded"),
+        summary: tagText(block, "content:encoded") || tagText(block, "description"),
         url: tagText(block, "link"),
         publishedAt: tagText(block, "pubDate") || tagText(block, "dc:date"),
-        category: inferCategory(`${tagText(block, "title")} ${tagText(block, "description")}`, config.category),
+        category: inferCategory(`${tagText(block, "title")} ${tagText(block, "content:encoded")} ${tagText(block, "description")}`, config.category),
         engagement: 1000,
         originalSource: tagText(block, "author") || config.name,
         entities: extractEntities(tagText(block, "title"))
@@ -479,10 +575,10 @@ function parseXmlFeed(config, xml) {
     normalizeRawItem(config, {
       externalId: tagText(block, "id") || firstHref(block) || tagText(block, "title"),
       title: config.repo ? `${config.repo} ${tagText(block, "title")}` : tagText(block, "title"),
-      summary: tagText(block, "summary") || tagText(block, "media:description"),
+      summary: tagText(block, "content") || tagText(block, "summary") || tagText(block, "media:description"),
       url: firstHref(block),
       publishedAt: tagText(block, "published") || tagText(block, "updated"),
-      category: inferCategory(`${tagText(block, "title")} ${tagText(block, "summary")}`, config.category),
+      category: inferCategory(`${tagText(block, "title")} ${tagText(block, "content")} ${tagText(block, "summary")}`, config.category),
       engagement: 1000,
       originalSource: tagText(block, "author") || config.name,
       entities: extractEntities(tagText(block, "title"))
@@ -501,7 +597,7 @@ function normalizeRawItem(config, item) {
     sourceId: config.id,
     platform: config.platform,
     title,
-    summary: summary.slice(0, 520),
+    summary: summary.slice(0, 900),
     url,
     publishedAt,
     engagement: Math.max(40, Math.round(Number(item.engagement) || 1000)),
@@ -828,6 +924,12 @@ function extractEntities(text) {
     "Replit",
     "StepFun",
     "DeepSeek",
+    "Together AI",
+    "BAIR",
+    "Berkeley",
+    "Nature",
+    "ScienceDaily",
+    "MIT Technology Review",
     "GitHub",
     "Microsoft",
     "Meta",

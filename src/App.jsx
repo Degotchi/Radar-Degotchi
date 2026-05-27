@@ -49,6 +49,7 @@ const FEED_BATCH_SIZE = 20;
 const DEFAULT_AUTO_REFRESH_MS = 60 * 60 * 1000;
 const THEME_STORAGE_KEY = "ai-hot-radar-theme";
 const READ_STATE_STORAGE_KEY = "ai-hot-radar-read-state";
+const LANGUAGE_STORAGE_KEY = "ai-hot-radar-language";
 
 function viewFromPath(pathname) {
   if (pathname === "/brief" || pathname.startsWith("/brief/") || pathname.startsWith("/s/")) return "brief";
@@ -73,6 +74,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
   const [themeMode, setThemeMode] = useState(loadThemeMode);
+  const [language, setLanguage] = useState(loadLanguage);
   const [readState, setReadState] = useState(loadReadState);
   const [dailies, setDailies] = useState([]);
   const sessionLastReadEventIdRef = useRef(readState.lastReadEventId);
@@ -114,6 +116,11 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(READ_STATE_STORAGE_KEY, JSON.stringify(readState));
   }, [readState]);
+
+  useEffect(() => {
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+    document.documentElement.lang = language === "en" ? "en" : "zh-CN";
+  }, [language]);
 
   useEffect(() => {
     let cancelled = false;
@@ -170,6 +177,12 @@ export default function App() {
         event.editorInsight,
         event.editorDetail,
         ...(event.editorBullets ?? []),
+        event.translations?.zh?.title,
+        event.translations?.zh?.summary,
+        event.translations?.zh?.insight,
+        event.translations?.en?.title,
+        event.translations?.en?.summary,
+        event.translations?.en?.insight,
         ...event.entities,
         ...(event.relatedItems ?? []).flatMap((item) => [item.title, item.summary, item.originalSource])
       ]
@@ -252,7 +265,7 @@ export default function App() {
   const activeArticle =
     dailies.find((article) => article.id === activeBriefKey || article.shortCode === activeBriefKey) ??
     dailies[0] ??
-    articleFromSnapshot(snapshot);
+    articleFromSnapshot(snapshot, language);
   const readIds = useMemo(() => new Set(readState.readIds), [readState.readIds]);
 
   return (
@@ -265,6 +278,8 @@ export default function App() {
         loading={loading}
         themeMode={themeMode}
         setThemeMode={setThemeMode}
+        language={language}
+        setLanguage={setLanguage}
       />
       {toast && <div className="toast">{toast}</div>}
 
@@ -277,6 +292,7 @@ export default function App() {
           onOpenEvent={openEvent}
           readIds={readIds}
           lastReadEventId={sessionLastReadEventIdRef.current}
+          language={language}
         />
       )}
 
@@ -287,29 +303,30 @@ export default function App() {
           events={snapshot.events}
           onOpenEvent={openEvent}
           navigateToPath={navigateToPath}
+          language={language}
         />
       )}
 
-      {activeView === "sources" && <SourcesPage sources={snapshot.sources} sourceMix={snapshot.sourceMix} />}
+      {activeView === "sources" && <SourcesPage sources={snapshot.sources} sourceMix={snapshot.sourceMix} language={language} />}
 
       {activeView === "admin" && (
-        <AdminPage snapshot={snapshot} onRecompute={runRecompute} onOpenEvent={openEvent} />
+        <AdminPage snapshot={snapshot} onRecompute={runRecompute} onOpenEvent={openEvent} language={language} />
       )}
 
-      {activeView !== "admin" && <FeedbackDock onOpen={openFeedback} />}
-      {feedbackOpen && <FeedbackModal onClose={closeFeedback} />}
-      <EventDrawer event={selectedEvent} onClose={() => setSelectedEventId(null)} />
+      {activeView !== "admin" && <FeedbackDock onOpen={openFeedback} language={language} />}
+      {feedbackOpen && <FeedbackModal onClose={closeFeedback} language={language} />}
+      <EventDrawer event={selectedEvent} onClose={() => setSelectedEventId(null)} language={language} />
     </div>
   );
 }
 
-function AppHeader({ activeView, navigateTo, query, setQuery, loading, themeMode, setThemeMode }) {
+function AppHeader({ activeView, navigateTo, query, setQuery, loading, themeMode, setThemeMode, language, setLanguage }) {
   const navItems = [
-    { id: "home", label: "首页" },
-    { id: "brief", label: "今日简报" },
-    { id: "sources", label: "信源说明" }
+    { id: "home", label: t(language, "home") },
+    { id: "brief", label: t(language, "brief") },
+    { id: "sources", label: t(language, "sources") }
   ];
-  const editionStatus = loading ? "正在连接真实信源" : "实时电讯已更新";
+  const editionStatus = loading ? t(language, "connectingSources") : t(language, "newswireUpdated");
 
   return (
     <header className="app-header">
@@ -326,13 +343,13 @@ function AppHeader({ activeView, navigateTo, query, setQuery, loading, themeMode
           </span>
           <span>
             <strong>Radar.Degotchi</strong>
-            <small>一份面向普通读者的 AI 科技报纸</small>
+            <small>{t(language, "brandSubline")}</small>
           </span>
         </a>
 
         <div className="header-search">
           <Search size={16} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="检索报纸库：公司、模型、事件" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t(language, "searchPlaceholder")} />
         </div>
 
         <div className="masthead-tools">
@@ -348,10 +365,29 @@ function AppHeader({ activeView, navigateTo, query, setQuery, loading, themeMode
               </a>
             ))}
           </nav>
+          <LanguageToggle language={language} setLanguage={setLanguage} />
           <ThemeSwitcher themeMode={themeMode} setThemeMode={setThemeMode} />
         </div>
       </div>
     </header>
+  );
+}
+
+function LanguageToggle({ language, setLanguage }) {
+  return (
+    <div className="language-switcher" aria-label="Language">
+      {["en", "zh"].map((option) => (
+        <button
+          key={option}
+          type="button"
+          className={language === option ? "active" : ""}
+          onClick={() => setLanguage(option)}
+          aria-pressed={language === option}
+        >
+          {option === "en" ? "EN" : "中文"}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -455,7 +491,8 @@ function HomePage({
   setBriefFilter,
   onOpenEvent,
   readIds,
-  lastReadEventId
+  lastReadEventId,
+  language
 }) {
   const feedTopRef = useRef(null);
   const loadMoreRef = useRef(null);
@@ -509,17 +546,18 @@ function HomePage({
                   aria-pressed={briefFilter === category}
                   onClick={() => handleFilterChange(category)}
                 >
-                  {category}
+                  {filterLabel(category, language)}
                 </button>
               ))}
             </div>
           </div>
-          <EventFeed events={loadedEvents} onOpenEvent={onOpenEvent} readIds={readIds} lastReadEventId={lastReadEventId} />
+          <EventFeed events={loadedEvents} onOpenEvent={onOpenEvent} readIds={readIds} lastReadEventId={lastReadEventId} language={language} />
           <FeedLoadMore
             loadMoreRef={loadMoreRef}
             hasMore={hasMoreEvents}
             visibleCount={visibleEnd}
             total={orderedEvents.length}
+            language={language}
           />
         </section>
       </section>
@@ -527,7 +565,7 @@ function HomePage({
   );
 }
 
-function EventFeed({ events, onOpenEvent, readIds, lastReadEventId }) {
+function EventFeed({ events, onOpenEvent, readIds, lastReadEventId, language }) {
   const { scrollY } = useScroll();
   const dayX = useSpring(useTransform(scrollY, [0, 280], [0, -5]), { stiffness: 220, damping: 32, mass: 0.35 });
   const dayY = useSpring(useTransform(scrollY, [0, 280], [0, 4]), { stiffness: 240, damping: 30, mass: 0.35 });
@@ -535,7 +573,7 @@ function EventFeed({ events, onOpenEvent, readIds, lastReadEventId }) {
   const ruleScale = useSpring(useTransform(scrollY, [0, 280], [0.72, 1]), { stiffness: 220, damping: 30, mass: 0.35 });
 
   if (!events.length) {
-    return <div className="empty-state">没有匹配到事件，换个关键词试试。</div>;
+    return <div className="empty-state">{t(language, "emptyFeed")}</div>;
   }
   const groups = groupTimelineEvents(events);
   return (
@@ -546,7 +584,7 @@ function EventFeed({ events, onOpenEvent, readIds, lastReadEventId }) {
           {group.items.map(({ event, rank }) => (
             <Fragment key={event.id}>
               {event.id === lastReadEventId && <LastReadMarker />}
-              <EventTimelineItem event={event} rank={rank} onOpenEvent={onOpenEvent} isRead={readIds.has(event.id)} />
+              <EventTimelineItem event={event} rank={rank} onOpenEvent={onOpenEvent} isRead={readIds.has(event.id)} language={language} />
             </Fragment>
           ))}
         </section>
@@ -575,12 +613,12 @@ function LastReadMarker() {
   );
 }
 
-function FeedLoadMore({ loadMoreRef, hasMore, visibleCount, total }) {
+function FeedLoadMore({ loadMoreRef, hasMore, visibleCount, total, language }) {
   if (!total) return null;
   return (
     <div ref={hasMore ? loadMoreRef : null} className={`feed-load-more ${hasMore ? "" : "done"}`} aria-live="polite">
-      <span>{hasMore ? `已显示 ${visibleCount} / ${total} 条` : `已显示全部 ${total} 条`}</span>
-      {hasMore && <small>继续下滑加载下一批 20 条</small>}
+      <span>{hasMore ? t(language, "loadedCount", { visibleCount, total }) : t(language, "loadedAll", { total })}</span>
+      {hasMore && <small>{t(language, "scrollMore")}</small>}
     </div>
   );
 }
@@ -600,8 +638,8 @@ function groupTimelineEvents(events) {
   return groups;
 }
 
-function EventTimelineItem({ event, rank, onOpenEvent, isRead }) {
-  const readable = eventReadableFields(event);
+function EventTimelineItem({ event, rank, onOpenEvent, isRead, language }) {
+  const readable = eventReadableFields(event, language);
   const primaryItem = event.relatedItems[0];
   return (
     <article
@@ -621,10 +659,10 @@ function EventTimelineItem({ event, rank, onOpenEvent, isRead }) {
       <div className="timeline-card">
         <div className="timeline-card-head">
           <span className="rank-chip">#{rank}</span>
-          <Tag tone={categoryTone[event.category]}>{event.category}</Tag>
-          <span className={`trend-chip ${event.trend}`}>{trendText(event.trend)}</span>
-          <TrustBadge event={event} />
-          <span className={`read-chip ${isRead ? "read" : "unread"}`}>{isRead ? "已读" : "未读"}</span>
+          <Tag tone={categoryTone[event.category]}>{categoryLabel(event.category, language)}</Tag>
+          <span className={`trend-chip ${event.trend}`}>{trendText(event.trend, language)}</span>
+          <TrustBadge event={event} language={language} />
+          <span className={`read-chip ${isRead ? "read" : "unread"}`}>{isRead ? t(language, "read") : t(language, "unread")}</span>
         </div>
         <h2>{readable.title}</h2>
         {readable.summary && <p className="timeline-summary">{readable.summary}</p>}
@@ -645,7 +683,7 @@ function EventTimelineItem({ event, rank, onOpenEvent, isRead }) {
                 onClick={(clickEvent) => clickEvent.stopPropagation()}
               >
                 <ExternalLink size={15} />
-                打开原文
+                {t(language, "openOriginal")}
               </a>
             )}
           </div>
@@ -655,8 +693,8 @@ function EventTimelineItem({ event, rank, onOpenEvent, isRead }) {
   );
 }
 
-function SourceDisclosure({ event, compact = false }) {
-  const text = sourceDisclosureText(event);
+function SourceDisclosure({ event, compact = false, language }) {
+  const text = sourceDisclosureText(event, language);
   if (!text) return null;
   return (
     <p className={`source-disclosure ${compact ? "compact" : ""}`}>
@@ -666,59 +704,59 @@ function SourceDisclosure({ event, compact = false }) {
   );
 }
 
-function EvidenceLine({ event, compact = false }) {
+function EvidenceLine({ event, compact = false, language }) {
   const highTrust = highTrustSourceCount(event);
   const latest = formatUpdateLabel(event.lastSeenAt);
   return (
     <div className={`evidence-line ${compact ? "compact" : ""}`}>
       <span>
         <Layers3 size={14} />
-        来自 {event.sources.length} 个信源
+        {t(language, "sourceCount", { count: event.sources.length })}
       </span>
       <span>
         <ShieldCheck size={14} />
-        {highTrust} 个高可信来源
+        {t(language, "highTrustCount", { count: highTrust })}
       </span>
       <span>
         <Clock3 size={14} />
-        最近更新 {latest}
+        {t(language, "latestUpdate", { latest })}
       </span>
     </div>
   );
 }
 
-function EventDrawer({ event, onClose }) {
+function EventDrawer({ event, onClose, language }) {
   if (!event) return null;
   const timeline = [...event.relatedItems].sort((a, b) => new Date(a.publishedAt) - new Date(b.publishedAt));
   const sourceNameById = Object.fromEntries(event.sources.map((source) => [source.id, source.name]));
   const primaryItem = event.relatedItems[0];
-  const readable = eventReadableFields(event);
+  const readable = eventReadableFields(event, language);
 
   return (
     <div className="drawer-backdrop" role="presentation" onMouseDown={onClose}>
       <aside className="event-drawer" onMouseDown={(event) => event.stopPropagation()}>
-        <button className="drawer-close" onClick={onClose} aria-label="关闭详情">
+        <button className="drawer-close" onClick={onClose} aria-label={t(language, "closeDetail")}>
           <X size={18} />
         </button>
         <div className="drawer-header">
-          <Tag tone={categoryTone[event.category]}>{event.category}</Tag>
-          <span className={`trend-chip ${event.trend}`}>{trendText(event.trend)}</span>
-          <TrustBadge event={event} />
-          <h2>{readable.title}</h2>
+          <Tag tone={categoryTone[event.category]}>{categoryLabel(event.category, language)}</Tag>
+          <span className={`trend-chip ${event.trend}`}>{trendText(event.trend, language)}</span>
+          <TrustBadge event={event} language={language} />
+          <h2 className="drawer-title">{readable.title}</h2>
           {readable.summary && <p>{readable.summary}</p>}
           <div className="drawer-actions">
             {primaryItem && (
               <a href={primaryItem.url} target="_blank" rel="noreferrer" className="drawer-source-link">
                 <ExternalLink size={15} />
-                打开原文
+                {t(language, "openOriginal")}
               </a>
             )}
           </div>
         </div>
 
         <section className="drawer-section">
-          <h3>为什么重要</h3>
-          <p>{readable.why || "目前抓到的信息还不足以提炼更多影响判断，建议先打开原文核验。"}</p>
+          <h3>{t(language, "whyItMatters")}</h3>
+          <p>{readable.why || t(language, "drawerWhyFallback")}</p>
           {readable.bullets.length > 0 && (
             <ul className="drawer-bullets">
               {readable.bullets.map((item) => (
@@ -732,18 +770,18 @@ function EventDrawer({ event, onClose }) {
         </section>
 
         <section className="drawer-section">
-          <h3>完整概要</h3>
-          <p>{readable.detail || "当前公开接口只提供标题、摘要或链接，暂未抓到更长正文；请通过下方来源打开原文查看完整内容。"}</p>
+          <h3>{t(language, "fullSummary")}</h3>
+          <p>{readable.detail || t(language, "drawerDetailFallback")}</p>
         </section>
 
         <section className="drawer-section">
-          <h3>来源判断</h3>
-          <EvidenceLine event={event} />
-          <SourceDisclosure event={event} />
+          <h3>{t(language, "sourceJudgement")}</h3>
+          <EvidenceLine event={event} language={language} />
+          <SourceDisclosure event={event} language={language} />
         </section>
 
         <section className="drawer-section">
-          <h3>事件时间线</h3>
+          <h3>{t(language, "eventTimeline")}</h3>
           <div className="timeline">
             {timeline.slice(0, 6).map((item) => (
               <article key={item.id}>
@@ -758,10 +796,10 @@ function EventDrawer({ event, onClose }) {
         </section>
 
         <section className="drawer-section">
-          <h3>已抓到的内容</h3>
+          <h3>{t(language, "capturedContent")}</h3>
           <div className="source-detail-list">
             {timeline.map((item) => {
-              const snippet = sourceSnippetForDrawer(item, event, 260);
+              const snippet = sourceSnippetForDrawer(item, event, 260, language);
               return (
                 <article key={item.id}>
                   <div className="source-detail-meta">
@@ -774,10 +812,10 @@ function EventDrawer({ event, onClose }) {
                     {snippet ? (
                       <p>{snippet}</p>
                     ) : (
-                      <p className="source-snippet-empty">这条来源没有提供区别于标题的正文摘录，建议直接打开原文查看完整内容。</p>
+                      <p className="source-snippet-empty">{t(language, "sourceSnippetEmpty")}</p>
                     )}
                     <a href={item.url} target="_blank" rel="noreferrer">
-                      打开这一条来源
+                      {t(language, "openThisSource")}
                       <ExternalLink size={13} />
                     </a>
                   </div>
@@ -791,12 +829,12 @@ function EventDrawer({ event, onClose }) {
   );
 }
 
-function BriefPage({ article, dailies, events, onOpenEvent, navigateToPath }) {
+function BriefPage({ article, dailies, events, onOpenEvent, navigateToPath, language }) {
   const [activeCategory, setActiveCategory] = useState("全部");
   const [copied, setCopied] = useState(false);
   const eventById = useMemo(() => new Map(events.map((event) => [event.id, event])), [events]);
   const categories = ["全部", ...article.sections.map((section) => section.category)];
-  const highlights = useMemo(() => (article.highlights ?? []).map((event) => hydrateBriefEvent(event, eventById)), [article.highlights, eventById]);
+  const highlights = useMemo(() => (article.highlights ?? []).map((event) => hydrateBriefEvent(event, eventById, language)), [article.highlights, eventById, language]);
   const leadStory = highlights[0] ?? null;
   const secondaryStories = highlights.slice(1, 4);
   const highlightedIds = useMemo(() => new Set(highlights.map((event) => event.id)), [highlights]);
@@ -809,15 +847,15 @@ function BriefPage({ article, dailies, events, onOpenEvent, navigateToPath }) {
       .map((section) => ({
         ...section,
         events: section.events
-          .map((event) => hydrateBriefEvent(event, eventById))
+          .map((event) => hydrateBriefEvent(event, eventById, language))
           .filter((event) => activeCategory !== "全部" || !highlightedIds.has(event.id))
       }))
       .filter((section) => section.events.length > 0);
-  }, [activeCategory, article.sections, eventById, highlightedIds]);
+  }, [activeCategory, article.sections, eventById, highlightedIds, language]);
   const watchStories = useMemo(() => {
-    const cooling = events.filter((event) => event.trend === "cooling").slice(0, 2).map(toFallbackBriefEvent);
-    return dedupeEvents([...(article.watchList ?? []), ...cooling].map((event) => hydrateBriefEvent(event, eventById))).slice(0, 5);
-  }, [article.watchList, eventById, events]);
+    const cooling = events.filter((event) => event.trend === "cooling").slice(0, 2).map((event) => toFallbackBriefEvent(event, language));
+    return dedupeEvents([...(article.watchList ?? []), ...cooling].map((event) => hydrateBriefEvent(event, eventById, language))).slice(0, 5);
+  }, [article.watchList, eventById, events, language]);
   const allVisibleStories = [
     ...(leadStory ? [leadStory] : []),
     ...secondaryStories,
@@ -849,17 +887,17 @@ function BriefPage({ article, dailies, events, onOpenEvent, navigateToPath }) {
     <main className="brief-shell newspaper-shell">
       <aside className="brief-sidebar">
         <section>
-          <h2>筛选</h2>
+          <h2>{t(language, "filters")}</h2>
           <div className="brief-filter-list">
             {categories.map((category) => (
               <button key={category} className={activeCategory === category ? "active" : ""} onClick={() => setActiveCategory(category)}>
-                {category}
+                {filterLabel(category, language)}
               </button>
             ))}
           </div>
         </section>
         <section>
-          <h2>以往每日简报</h2>
+          <h2>{t(language, "pastBriefs")}</h2>
           <div className="brief-history-list">
             {dailies.map((item) => (
               <button
@@ -868,7 +906,7 @@ function BriefPage({ article, dailies, events, onOpenEvent, navigateToPath }) {
                 onClick={() => navigateToPath(`/brief/${item.id}`)}
               >
                 <strong>{item.id}</strong>
-                <span>{item.eventCount} 条 · {formatDate(item.windowStart)} - {formatDate(item.windowEnd)}</span>
+                <span>{t(language, "briefHistoryMeta", { count: item.eventCount, start: formatDate(item.windowStart), end: formatDate(item.windowEnd) })}</span>
               </button>
             ))}
           </div>
@@ -878,7 +916,7 @@ function BriefPage({ article, dailies, events, onOpenEvent, navigateToPath }) {
       <article className="brief-article newspaper-edition">
         <header className="newspaper-masthead">
           <div className="newspaper-topline">
-            <span>第 {editionNumber} 期</span>
+            <span>{t(language, "issueNumber", { number: editionNumber })}</span>
             <span>{issueDate}</span>
             <span>{browserTimeZoneLabel()}</span>
           </div>
@@ -888,29 +926,29 @@ function BriefPage({ article, dailies, events, onOpenEvent, navigateToPath }) {
             <span>24H</span>
           </div>
           <div className="newspaper-subline">
-            <span>AI 科技日报</span>
+            <span>{t(language, "dailyPaper")}</span>
             <span>{issueRange}</span>
-            <span>{article.eventCount} 条入选 · {article.sourceCount} 个信源</span>
+            <span>{t(language, "dailyStats", { events: article.eventCount, sources: article.sourceCount })}</span>
           </div>
         </header>
 
         <div className="newspaper-actions-row">
-          <p>{article.lead}</p>
+          <p>{localizedArticleLead(article, language)}</p>
           <button className="brief-share-button" onClick={copyShareLink}>
             <ExternalLink size={15} />
-            {copied ? "已复制短链" : "复制分享短链"}
+            {copied ? t(language, "copiedLink") : t(language, "copyLink")}
           </button>
         </div>
 
         <div className="daily-article-body newspaper-body">
           {leadStory && activeCategory === "全部" && (
             <section className="newspaper-frontpage">
-              <NewspaperLeadStory event={leadStory} onOpenEvent={onOpenEvent} />
+              <NewspaperLeadStory event={leadStory} onOpenEvent={onOpenEvent} language={language} />
               <aside className="newspaper-briefs">
                 <span className="newspaper-section-label">INSIDE TODAY</span>
-                <h2>今日侧栏</h2>
+                <h2>{t(language, "insideToday")}</h2>
                 {secondaryStories.map((event, index) => (
-                  <NewspaperBriefItem key={event.id} event={event} index={index + 1} onOpenEvent={onOpenEvent} />
+                  <NewspaperBriefItem key={event.id} event={event} index={index + 1} onOpenEvent={onOpenEvent} language={language} />
                 ))}
               </aside>
             </section>
@@ -921,7 +959,7 @@ function BriefPage({ article, dailies, events, onOpenEvent, navigateToPath }) {
             <div>
               {sections.map((section) => (
                 <a key={section.category} href={`#daily-${section.category}`}>
-                  {section.category}
+                  {categoryLabel(section.category, language)}
                   <small>{section.events.length}</small>
                 </a>
               ))}
@@ -929,33 +967,33 @@ function BriefPage({ article, dailies, events, onOpenEvent, navigateToPath }) {
           </section>
 
           {sections.map((section, index) => (
-            <NewspaperSection key={section.category} section={section} index={index + 1} onOpenEvent={onOpenEvent} />
+            <NewspaperSection key={section.category} section={section} index={index + 1} onOpenEvent={onOpenEvent} language={language} />
           ))}
 
           {watchStories.length > 0 && (
             <section className="newspaper-watch-strip">
               <div>
                 <span className="newspaper-section-label">WATCH LIST</span>
-                <h2>持续观察</h2>
+                <h2>{t(language, "watchList")}</h2>
               </div>
               <div className="newspaper-watch-grid">
                 {watchStories.map((event, index) => (
-                  <NewspaperBriefItem key={event.id} event={event} index={index + 1} onOpenEvent={onOpenEvent} compact />
+                  <NewspaperBriefItem key={event.id} event={event} index={index + 1} onOpenEvent={onOpenEvent} compact language={language} />
                 ))}
               </div>
             </section>
           )}
 
-          <SourceFootnotes footnotes={footnotes} />
+          <SourceFootnotes footnotes={footnotes} language={language} />
         </div>
       </article>
     </main>
   );
 }
 
-function NewspaperLeadStory({ event, onOpenEvent }) {
-  const summary = storySummary(event);
-  const why = storyWhy(event);
+function NewspaperLeadStory({ event, onOpenEvent, language }) {
+  const summary = storySummary(event, language);
+  const why = storyWhy(event, language);
   return (
     <button className="newspaper-lead-story" onClick={() => onOpenEvent(event.id)}>
       <span className="newspaper-section-label">LEAD STORY</span>
@@ -963,75 +1001,75 @@ function NewspaperLeadStory({ event, onOpenEvent }) {
       {summary && <p className="newspaper-lead-summary">{summary}</p>}
       {why && (
         <p className="newspaper-importance">
-          <strong>为什么重要</strong>
+          <strong>{t(language, "whyItMatters")}</strong>
           <span>{why}</span>
         </p>
       )}
       <div className="newspaper-story-meta">
-        <span>{event.category}</span>
+        <span>{categoryLabel(event.category, language)}</span>
         <span>{event.trustLabel}</span>
-        <span>{sourceBriefText(event)}</span>
+        <span>{sourceBriefText(event, language)}</span>
         {event.lastSeenAt && <span>{formatUpdatedText(event.lastSeenAt)}</span>}
       </div>
     </button>
   );
 }
 
-function NewspaperSection({ section, index, onOpenEvent }) {
+function NewspaperSection({ section, index, onOpenEvent, language }) {
   return (
     <section className="newspaper-news-section" id={`daily-${section.category}`}>
       <header>
         <span>{String(index).padStart(2, "0")}</span>
         <div>
-          <small>{section.events.length} 条</small>
-          <h2>{section.category}</h2>
+          <small>{t(language, "itemCount", { count: section.events.length })}</small>
+          <h2>{categoryLabel(section.category, language)}</h2>
         </div>
       </header>
       <div className="newspaper-column-grid">
         {section.events.map((event, eventIndex) => (
-          <NewspaperArticle key={event.id} event={event} index={eventIndex + 1} onOpenEvent={onOpenEvent} />
+          <NewspaperArticle key={event.id} event={event} index={eventIndex + 1} onOpenEvent={onOpenEvent} language={language} />
         ))}
       </div>
     </section>
   );
 }
 
-function NewspaperArticle({ event, index, onOpenEvent }) {
-  const summary = storySummary(event);
-  const why = storyWhy(event);
+function NewspaperArticle({ event, index, onOpenEvent, language }) {
+  const summary = storySummary(event, language);
+  const why = storyWhy(event, language);
   return (
     <button className="newspaper-article-card" onClick={() => onOpenEvent(event.id)}>
       <span className="newspaper-article-number">{String(index).padStart(2, "0")}</span>
       <div className="newspaper-story-meta">
         <span>{event.trustLabel}</span>
-        <span>{sourceBriefText(event)}</span>
+        <span>{sourceBriefText(event, language)}</span>
       </div>
       <h3>{event.title}</h3>
       {summary && <p>{summary}</p>}
-      {why && <small>重要性：{why}</small>}
+      {why && <small>{t(language, "importancePrefix", { text: why })}</small>}
     </button>
   );
 }
 
-function NewspaperBriefItem({ event, index, onOpenEvent, compact = false }) {
+function NewspaperBriefItem({ event, index, onOpenEvent, compact = false, language }) {
   return (
     <button className={`newspaper-brief-item ${compact ? "compact" : ""}`} onClick={() => onOpenEvent(event.id)}>
       <span>{String(index).padStart(2, "0")}</span>
       <div>
         <strong>{event.title}</strong>
-        <small>{event.category} · {event.trustLabel} · {sourceBriefText(event)}</small>
+        <small>{categoryLabel(event.category, language)} · {event.trustLabel} · {sourceBriefText(event, language)}</small>
       </div>
     </button>
   );
 }
 
-function SourceFootnotes({ footnotes }) {
+function SourceFootnotes({ footnotes, language }) {
   if (!footnotes.length) return null;
   return (
     <footer className="newspaper-footnotes">
       <div>
         <span className="newspaper-section-label">SOURCE NOTES</span>
-        <h2>来源脚注</h2>
+        <h2>{t(language, "sourceFootnotes")}</h2>
       </div>
       <ol>
         {footnotes.map((item, index) => (
@@ -1047,38 +1085,38 @@ function SourceFootnotes({ footnotes }) {
   );
 }
 
-function SourcesPage({ sources, sourceMix }) {
+function SourcesPage({ sources, sourceMix, language }) {
   return (
     <main className="simple-page">
-      <SectionTitle title="信源说明" caption="当前接入的公开来源，以及每类来源适合用来判断什么。" />
+      <SectionTitle title={t(language, "sourcesTitle")} caption={t(language, "sourcesCaption")} />
       <div className="source-explain-grid">
         <article>
           <ShieldCheck size={22} />
-          <h2>高可信</h2>
-          <p>官方博客、研究发布、官方社交和代码发布，适合做事实基础。</p>
+          <h2>{t(language, "trusted")}</h2>
+          <p>{t(language, "trustedSourceExplain")}</p>
         </article>
         <article>
           <Layers3 size={22} />
-          <h2>多源验证</h2>
-          <p>多个平台独立提及，同一事件不依赖单条消息判断。</p>
+          <h2>{t(language, "verified")}</h2>
+          <p>{t(language, "verifiedSourceExplain")}</p>
         </article>
         <article>
           <TrendingUp size={22} />
-          <h2>社区热议</h2>
-          <p>KOL、HN、YouTube、媒体适合判断扩散和讨论，但需要继续验证。</p>
+          <h2>{t(language, "community")}</h2>
+          <p>{t(language, "communitySourceExplain")}</p>
         </article>
       </div>
       <section className="source-table-card">
-        <h2>当前真实信源</h2>
+        <h2>{t(language, "activeSources")}</h2>
         <table>
           <thead>
             <tr>
-              <th>信源</th>
-              <th>等级</th>
-              <th>平台</th>
-              <th>类型</th>
+              <th>{t(language, "source")}</th>
+              <th>{t(language, "tier")}</th>
+              <th>{t(language, "platform")}</th>
+              <th>{t(language, "type")}</th>
               <th>24h</th>
-              <th>状态</th>
+              <th>{t(language, "status")}</th>
             </tr>
           </thead>
           <tbody>
@@ -1106,7 +1144,7 @@ function SourcesPage({ sources, sourceMix }) {
   );
 }
 
-function AdminPage({ snapshot, onRecompute, onOpenEvent }) {
+function AdminPage({ snapshot, onRecompute, onOpenEvent, language }) {
   const [feedbackItems, setFeedbackItems] = useState([]);
   const [feedbackLoading, setFeedbackLoading] = useState(true);
 
@@ -1131,41 +1169,41 @@ function AdminPage({ snapshot, onRecompute, onOpenEvent }) {
   return (
     <main className="admin-page">
       <div className="admin-head">
-        <SectionTitle eyebrow="Admin" title="管理后台" caption="后台功能收敛在这里，不再主导普通用户首页。" />
+        <SectionTitle eyebrow="Admin" title={t(language, "adminTitle")} caption={t(language, "adminCaption")} />
         <button className="primary-action" onClick={onRecompute}>
-          重新聚类和计分
+          {t(language, "recompute")}
         </button>
       </div>
       <div className="admin-metrics">
-        <Metric label="信源数" value={snapshot.sources.length} />
+        <Metric label={t(language, "sourceMetric")} value={snapshot.sources.length} />
         <Metric label="RawItem" value={snapshot.rawItems.length} />
-        <Metric label="聚类数" value={snapshot.clusters.length} />
-        <Metric label="精选事件" value={snapshot.metrics.selected} />
+        <Metric label={t(language, "clusterMetric")} value={snapshot.clusters.length} />
+        <Metric label={t(language, "selectedMetric")} value={snapshot.metrics.selected} />
       </div>
       <section className="source-table-card">
-        <h2>事件管理</h2>
+        <h2>{t(language, "eventAdmin")}</h2>
         <table>
           <thead>
             <tr>
-              <th>事件</th>
-              <th>分类</th>
-              <th>状态</th>
-              <th>热度</th>
-              <th>精选</th>
-              <th>操作</th>
+              <th>{t(language, "event")}</th>
+              <th>{t(language, "category")}</th>
+              <th>{t(language, "status")}</th>
+              <th>{t(language, "hotScore")}</th>
+              <th>{t(language, "selectedScore")}</th>
+              <th>{t(language, "actions")}</th>
             </tr>
           </thead>
           <tbody>
             {snapshot.events.map((event) => (
               <tr key={event.id}>
-                <td>{event.title}</td>
-                <td>{event.category}</td>
+                <td>{eventReadableFields(event, language).title}</td>
+                <td>{categoryLabel(event.category, language)}</td>
                 <td>{event.status}</td>
                 <td>{event.hotScore}</td>
                 <td>{event.selectedScore}</td>
                 <td>
                   <button className="table-action" onClick={() => onOpenEvent(event.id)}>
-                    查看
+                    {t(language, "view")}
                   </button>
                 </td>
               </tr>
@@ -1174,9 +1212,9 @@ function AdminPage({ snapshot, onRecompute, onOpenEvent }) {
         </table>
       </section>
       <section className="source-table-card feedback-admin-card">
-        <h2>反馈建议</h2>
+        <h2>{t(language, "feedback")}</h2>
         {feedbackLoading ? (
-          <p className="admin-muted">正在读取本地反馈...</p>
+          <p className="admin-muted">{t(language, "loadingFeedback")}</p>
         ) : feedbackItems.length ? (
           <div className="feedback-list">
             {feedbackItems.map((item) => (
@@ -1191,23 +1229,23 @@ function AdminPage({ snapshot, onRecompute, onOpenEvent }) {
             ))}
           </div>
         ) : (
-          <p className="admin-muted">暂无反馈。</p>
+          <p className="admin-muted">{t(language, "noFeedback")}</p>
         )}
       </section>
     </main>
   );
 }
 
-function FeedbackDock({ onOpen }) {
+function FeedbackDock({ onOpen, language }) {
   return (
     <button className="feedback-dock" type="button" onClick={onOpen}>
       <MessageSquare size={15} />
-      反馈建议
+      {t(language, "feedback")}
     </button>
   );
 }
 
-function FeedbackModal({ onClose }) {
+function FeedbackModal({ onClose, language }) {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [email, setEmail] = useState("");
@@ -1215,7 +1253,7 @@ function FeedbackModal({ onClose }) {
 
   async function submitFeedback(event) {
     event.preventDefault();
-    setStatus({ type: "loading", message: "正在保存..." });
+    setStatus({ type: "loading", message: t(language, "saving") });
     try {
       const response = await fetch("/api/feedback", {
         method: "POST",
@@ -1227,40 +1265,40 @@ function FeedbackModal({ onClose }) {
       setTitle("");
       setContent("");
       setEmail("");
-      setStatus({ type: "success", message: "已收到，感谢反馈。" });
+      setStatus({ type: "success", message: t(language, "feedbackSaved") });
     } catch {
-      setStatus({ type: "error", message: "保存失败，请稍后再试。" });
+      setStatus({ type: "error", message: t(language, "feedbackFailed") });
     }
   }
 
   return (
     <div className="feedback-modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section className="feedback-card feedback-modal" role="dialog" aria-modal="true" aria-labelledby="feedback-title" onMouseDown={(event) => event.stopPropagation()}>
-        <button className="drawer-close feedback-close" type="button" onClick={onClose} aria-label="关闭反馈">
+        <button className="drawer-close feedback-close" type="button" onClick={onClose} aria-label={t(language, "closeFeedback")}>
           <X size={18} />
         </button>
         <SectionTitle
           eyebrow="Feedback"
-          title="反馈建议"
-          caption="写下你希望逮奇雷达改进的地方。标题和内容必填，邮箱选填。"
+          title={t(language, "feedback")}
+          caption={t(language, "feedbackCaption")}
           titleId="feedback-title"
         />
         <form className="feedback-form" onSubmit={submitFeedback}>
           <label>
-            <span>标题</span>
+            <span>{t(language, "feedbackTitle")}</span>
             <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} required />
           </label>
           <label>
-            <span>内容</span>
+            <span>{t(language, "feedbackContent")}</span>
             <textarea value={content} onChange={(event) => setContent(event.target.value)} maxLength={2400} rows={8} required />
           </label>
           <label>
-            <span>邮箱（选填）</span>
+            <span>{t(language, "feedbackEmail")}</span>
             <input value={email} onChange={(event) => setEmail(event.target.value)} maxLength={160} type="email" />
           </label>
           <div className="feedback-form-actions">
             <button className="primary-action" disabled={status.type === "loading"} type="submit">
-              提交反馈
+              {t(language, "submitFeedback")}
             </button>
             {status.message && <p className={`feedback-status ${status.type}`}>{status.message}</p>}
           </div>
@@ -1293,8 +1331,8 @@ function Tag({ children, tone = "gray" }) {
   return <span className={`tag ${tone}`}>{children}</span>;
 }
 
-function TrustBadge({ event }) {
-  return <span className={`trust-badge ${trustTone(event)}`}>{trustLabel(event)}</span>;
+function TrustBadge({ event, language }) {
+  return <span className={`trust-badge ${trustTone(event)}`}>{trustLabel(event, language)}</span>;
 }
 
 function FactorList({ factors }) {
@@ -1313,18 +1351,17 @@ function FactorList({ factors }) {
   );
 }
 
-function trustLabel(event) {
-  if (event.primaryTier === "T1" || event.confidence >= 74) return "高可信";
-  if (event.platformCount >= 3) return "多源验证";
-  if (event.status === "watch" || event.trend === "volatile") return "待验证";
-  return "社区热议";
+function trustLabel(event, language = "zh") {
+  if (event.primaryTier === "T1" || event.confidence >= 74) return t(language, "trusted");
+  if (event.platformCount >= 3) return t(language, "verified");
+  if (event.status === "watch" || event.trend === "volatile") return t(language, "needsVerification");
+  return t(language, "community");
 }
 
 function trustTone(event) {
-  const label = trustLabel(event);
-  if (label === "高可信") return "trusted";
-  if (label === "多源验证") return "verified";
-  if (label === "待验证") return "watch";
+  if (event.primaryTier === "T1" || event.confidence >= 74) return "trusted";
+  if (event.platformCount >= 3) return "verified";
+  if (event.status === "watch" || event.trend === "volatile") return "watch";
   return "community";
 }
 
@@ -1332,10 +1369,11 @@ function highTrustSourceCount(event) {
   return event.sources.filter((source) => source.tier === "T1" || source.tier === "T1.5").length;
 }
 
-function displayTitle(event) {
-  const title = cleanText(event.title, 90);
-  const summary = cleanText(event.editorSummary || event.summary, 46).replace(/[。.!！?？]+$/g, "");
-  if (isMostlyLatin(title) && hasCjk(summary)) return summary;
+function displayTitle(event, language = "zh") {
+  const localized = localizedEditorial(event, language);
+  const title = cleanText(localized.title || event.editorTitle || event.title, 110);
+  const summary = cleanText(localized.summary || event.editorSummary || event.summary, 54).replace(/[。.!！?？]+$/g, "");
+  if (language === "zh" && isMostlyLatin(title) && hasCjk(summary)) return summary;
   return title;
 }
 
@@ -1351,8 +1389,10 @@ function hasCjk(value) {
   return /[\u3400-\u9fff]/.test(String(value ?? ""));
 }
 
-function eventBullets(event) {
+function eventBullets(event, language = "zh") {
+  const localized = localizedEditorial(event, language);
   const candidates = [
+    ...(localized.bullets ?? []),
     ...(event.editorBullets ?? []),
     ...(event.relatedItems ?? []).flatMap((item) => [sourceSnippet(item, 130), item.title])
   ];
@@ -1363,16 +1403,18 @@ function eventBullets(event) {
         (item) =>
           item &&
           normalizeText(item) !== normalizeText(event.title) &&
-          normalizeText(item) !== normalizeText(event.editorInsight) &&
-          normalizeText(item) !== normalizeText(event.editorSummary || event.summary)
+          normalizeText(item) !== normalizeText(localized.insight || event.editorInsight) &&
+          normalizeText(item) !== normalizeText(localized.summary || event.editorSummary || event.summary)
       )
   ).slice(0, 3);
 }
 
-function eventReadableFields(event) {
-  const title = displayTitle(event);
+function eventReadableFields(event, language = "zh") {
+  const localized = localizedEditorial(event, language);
+  const title = displayTitle(event, language);
   const summary = pickDistinctText(
     [
+      localized.summary,
       event.editorSummary,
       event.summary,
       ...(event.relatedItems ?? []).map((item) => item.summary)
@@ -1381,13 +1423,14 @@ function eventReadableFields(event) {
     190
   );
   const why = pickDistinctText(
-    [event.editorInsight, ...(event.editorBullets ?? []), ...eventBullets(event)],
+    [localized.insight, event.editorInsight, ...(localized.bullets ?? []), ...(event.editorBullets ?? []), ...eventBullets(event, language)],
     [title, summary],
     150
   );
-  const bullets = eventBullets(event).filter((item) => !isDuplicateText(item, [title, summary, why])).slice(0, 3);
+  const bullets = eventBullets(event, language).filter((item) => !isDuplicateText(item, [title, summary, why])).slice(0, 3);
   const detail = pickDistinctText(
     [
+      localized.detail,
       event.editorDetail,
       ...bullets,
       ...(event.relatedItems ?? []).map((item) => item.summary)
@@ -1404,12 +1447,12 @@ function sourceSnippet(item, maxLength = 180) {
   return cleanText(item.title, maxLength);
 }
 
-function sourceSnippetForDrawer(item, event, maxLength = 240) {
+function sourceSnippetForDrawer(item, event, maxLength = 240, language = "zh") {
   return pickDistinctText(
     [item.summary],
     [
       item.title,
-      displayTitle(event),
+      displayTitle(event, language),
       event.editorSummary,
       event.summary,
       event.editorInsight,
@@ -1440,15 +1483,15 @@ function sourceContextLabel(item, sourceNameById) {
   return item.platform;
 }
 
-function sourceDisclosureText(event) {
+function sourceDisclosureText(event, language = "zh") {
   const aihotXCount = (event.relatedItems ?? []).filter(
     (item) => item.platform === "AIHOT" && (isXUrl(item) || /^X[:：]/i.test(item.originalSource || ""))
   ).length;
   if (aihotXCount) {
-    return `${aihotXCount} 条 X 来源来自 AIHOT 聚合源，标题和摘要可能已被中文整理；“打开原文”会跳到对应 X 页面核验。`;
+    return t(language, "aihotDisclosure", { count: aihotXCount });
   }
   const aggregatorCount = (event.sources ?? []).filter((source) => source.type === "aggregator").length;
-  if (aggregatorCount) return "包含聚合源整理内容，建议把聚合摘要和原始链接一起看。";
+  if (aggregatorCount) return t(language, "aggregatorDisclosure");
   return "";
 }
 
@@ -1484,21 +1527,21 @@ function dedupeText(values) {
   return result;
 }
 
-function trendText(trend) {
+function trendText(trend, language = "zh") {
   return {
-    rising: "正在升温",
-    cooling: "热度回落",
-    volatile: "持续观察",
-    steady: "稳定传播",
-    watch: "持续观察"
+    rising: t(language, "rising"),
+    cooling: t(language, "cooling"),
+    volatile: t(language, "watching"),
+    steady: t(language, "steady"),
+    watch: t(language, "watching")
   }[trend] ?? trend;
 }
 
-function articleFromSnapshot(snapshot) {
+function articleFromSnapshot(snapshot, language = "zh") {
   const brief = snapshot.dailyBrief;
   const sections = brief.sections.map((section) => ({
     category: section.category,
-    events: section.events.map(toFallbackBriefEvent)
+    events: section.events.map((event) => toFallbackBriefEvent(event, language))
   }));
   const highlights = sections.flatMap((section) => section.events).slice(0, 4);
   return {
@@ -1513,22 +1556,23 @@ function articleFromSnapshot(snapshot) {
     windowEnd: brief.generatedAt,
     eventCount: highlights.length,
     sourceCount: new Set(highlights.map((event) => event.id)).size,
-    lead: highlights[0]?.summary || "今日简报正在生成中。",
+    lead: highlights[0]?.summary || t(language, "briefGenerating"),
     highlights,
     sections,
-    watchList: brief.watchList.map(toFallbackBriefEvent),
+    watchList: brief.watchList.map((event) => toFallbackBriefEvent(event, language)),
     tags: []
   };
 }
 
-function toFallbackBriefEvent(event) {
+function toFallbackBriefEvent(event, language = "zh") {
+  const readable = eventReadableFields(event, language);
   return {
     id: event.id,
-    title: displayTitle(event),
+    title: readable.title,
     category: event.category,
-    summary: event.editorSummary || event.summary,
-    insight: event.editorInsight || event.editorSummary || event.summary,
-    trustLabel: trustLabel(event),
+    summary: readable.summary || event.editorSummary || event.summary,
+    insight: readable.why || event.editorInsight || event.editorSummary || event.summary,
+    trustLabel: trustLabel(event, language),
     lastSeenAt: event.lastSeenAt,
     sourceCount: event.sources?.length ?? event.sourceIds?.length ?? 0,
     highTrustSourceCount: highTrustSourceCount(event),
@@ -1536,7 +1580,7 @@ function toFallbackBriefEvent(event) {
   };
 }
 
-function hydrateBriefEvent(event, eventById) {
+function hydrateBriefEvent(event, eventById, language = "zh") {
   const fullEvent = eventById.get(event.id);
   if (!fullEvent) {
     return {
@@ -1547,14 +1591,15 @@ function hydrateBriefEvent(event, eventById) {
       fullEvent: null
     };
   }
+  const readable = eventReadableFields(fullEvent, language);
 
   return {
     ...event,
-    title: displayTitle(fullEvent),
+    title: readable.title,
     category: fullEvent.category || event.category,
-    summary: fullEvent.editorSummary || event.summary || fullEvent.summary,
-    insight: fullEvent.editorInsight || event.insight,
-    trustLabel: trustLabel(fullEvent),
+    summary: readable.summary || event.summary || fullEvent.summary,
+    insight: readable.why || event.insight,
+    trustLabel: trustLabel(fullEvent, language),
     lastSeenAt: fullEvent.lastSeenAt || event.lastSeenAt,
     sourceCount: fullEvent.sources?.length ?? event.sourceCount ?? 0,
     highTrustSourceCount: highTrustSourceCount(fullEvent),
@@ -1563,9 +1608,11 @@ function hydrateBriefEvent(event, eventById) {
   };
 }
 
-function storySummary(event) {
+function storySummary(event, language = "zh") {
+  const readable = event.fullEvent ? eventReadableFields(event.fullEvent, language) : null;
   return pickDistinctText(
     [
+      readable?.summary,
       event.summary,
       event.fullEvent?.editorSummary,
       event.fullEvent?.summary,
@@ -1576,26 +1623,279 @@ function storySummary(event) {
   );
 }
 
-function storyWhy(event) {
+function storyWhy(event, language = "zh") {
+  const readable = event.fullEvent ? eventReadableFields(event.fullEvent, language) : null;
   return pickDistinctText(
     [
+      readable?.why,
       event.insight,
       event.fullEvent?.editorInsight,
       event.fullEvent?.editorBullets?.[0],
-      event.fullEvent ? eventBullets(event.fullEvent)[0] : ""
+      event.fullEvent ? eventBullets(event.fullEvent, language)[0] : ""
     ],
     [event.title, event.summary],
     140
   );
 }
 
-function sourceBriefText(event) {
+function sourceBriefText(event, language = "zh") {
   const sourceCount = event.fullEvent?.sources?.length ?? event.sourceCount ?? 0;
   const highTrust = event.fullEvent ? highTrustSourceCount(event.fullEvent) : event.highTrustSourceCount ?? 0;
-  if (!sourceCount) return "来源待补";
-  if (sourceCount === 1) return highTrust ? "1 个高可信来源" : "1 个来源";
-  return `${sourceCount} 个来源 · ${highTrust} 个高可信`;
+  if (!sourceCount) return t(language, "sourceMissing");
+  if (sourceCount === 1) return highTrust ? t(language, "oneHighTrustSource") : t(language, "oneSource");
+  return t(language, "sourceBrief", { sourceCount, highTrust });
 }
+
+function localizedEditorial(event, language = "zh") {
+  const preferred = event.translations?.[language] ?? {};
+  const fallback = event.translations?.zh ?? event.translations?.en ?? {};
+  return {
+    title: preferred.title || fallback.title || event.editorTitle || event.title,
+    summary: preferred.summary || fallback.summary || event.editorSummary || event.summary,
+    insight: preferred.insight || fallback.insight || event.editorInsight || "",
+    detail: preferred.detail || fallback.detail || event.editorDetail || "",
+    bullets: preferred.bullets?.length ? preferred.bullets : fallback.bullets?.length ? fallback.bullets : event.editorBullets ?? []
+  };
+}
+
+function localizedArticleLead(article, language = "zh") {
+  const lead = article.translations?.[language]?.lead || article.lead;
+  return cleanText(lead, 260);
+}
+
+function categoryLabel(category, language = "zh") {
+  return CATEGORY_LABELS[language]?.[category] || category;
+}
+
+function filterLabel(filter, language = "zh") {
+  return FILTER_LABELS[language]?.[filter] || categoryLabel(filter, language);
+}
+
+function t(language = "zh", key, values = {}) {
+  const template = UI_TEXT[language]?.[key] ?? UI_TEXT.zh[key] ?? key;
+  return Object.entries(values).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), template);
+}
+
+const CATEGORY_LABELS = {
+  zh: {
+    模型发布: "模型发布",
+    产品更新: "产品更新",
+    行业动态: "行业动态",
+    开源生态: "开源生态",
+    论文研究: "论文研究",
+    技巧与观点: "技巧与观点"
+  },
+  en: {
+    模型发布: "Models",
+    产品更新: "Products",
+    行业动态: "Industry",
+    开源生态: "Open Source",
+    论文研究: "Research",
+    技巧与观点: "Ideas"
+  }
+};
+
+const FILTER_LABELS = {
+  zh: {
+    全部: "全部",
+    正在升温: "正在升温",
+    持续观察: "持续观察"
+  },
+  en: {
+    全部: "All",
+    正在升温: "Rising",
+    持续观察: "Watch"
+  }
+};
+
+const UI_TEXT = {
+  zh: {
+    home: "首页",
+    brief: "今日简报",
+    sources: "信源说明",
+    connectingSources: "正在连接真实信源",
+    newswireUpdated: "实时电讯已更新",
+    brandSubline: "一份面向普通读者的 AI 科技报纸",
+    searchPlaceholder: "检索报纸库：公司、模型、事件",
+    emptyFeed: "没有匹配到事件，换个关键词试试。",
+    loadedCount: "已显示 {visibleCount} / {total} 条",
+    loadedAll: "已显示全部 {total} 条",
+    scrollMore: "继续下滑加载下一批 20 条",
+    read: "已读",
+    unread: "未读",
+    openOriginal: "打开原文",
+    closeDetail: "关闭详情",
+    closeFeedback: "关闭反馈",
+    whyItMatters: "为什么重要",
+    drawerWhyFallback: "目前抓到的信息还不足以提炼更多影响判断，建议先打开原文核验。",
+    fullSummary: "完整概要",
+    drawerDetailFallback: "当前公开接口只提供标题、摘要或链接，暂未抓到更长正文；请通过下方来源打开原文查看完整内容。",
+    sourceJudgement: "来源判断",
+    eventTimeline: "事件时间线",
+    capturedContent: "已抓到的内容",
+    sourceSnippetEmpty: "这条来源没有提供区别于标题的正文摘录，建议直接打开原文查看完整内容。",
+    openThisSource: "打开这一条来源",
+    sourceCount: "来自 {count} 个信源",
+    highTrustCount: "{count} 个高可信来源",
+    latestUpdate: "最近更新 {latest}",
+    filters: "筛选",
+    pastBriefs: "以往每日简报",
+    briefHistoryMeta: "{count} 条 · {start} - {end}",
+    issueNumber: "第 {number} 期",
+    dailyPaper: "AI 科技日报",
+    dailyStats: "{events} 条入选 · {sources} 个信源",
+    copiedLink: "已复制短链",
+    copyLink: "复制分享短链",
+    insideToday: "今日侧栏",
+    watchList: "持续观察",
+    itemCount: "{count} 条",
+    sourceFootnotes: "来源脚注",
+    importancePrefix: "重要性：{text}",
+    trusted: "高可信",
+    verified: "多源验证",
+    needsVerification: "待验证",
+    community: "社区热议",
+    sourceMissing: "来源待补",
+    oneHighTrustSource: "1 个高可信来源",
+    oneSource: "1 个来源",
+    sourceBrief: "{sourceCount} 个来源 · {highTrust} 个高可信",
+    rising: "正在升温",
+    cooling: "热度回落",
+    watching: "持续观察",
+    steady: "稳定传播",
+    briefGenerating: "今日简报正在生成中。",
+    aihotDisclosure: "{count} 条 X 来源来自 AIHOT 聚合源，标题和摘要可能已被中文整理；“打开原文”会跳到对应 X 页面核验。",
+    aggregatorDisclosure: "包含聚合源整理内容，建议把聚合摘要和原始链接一起看。",
+    sourcesTitle: "信源说明",
+    sourcesCaption: "当前接入的公开来源，以及每类来源适合用来判断什么。",
+    trustedSourceExplain: "官方博客、研究发布、官方社交和代码发布，适合做事实基础。",
+    verifiedSourceExplain: "多个平台独立提及，同一事件不依赖单条消息判断。",
+    communitySourceExplain: "KOL、HN、YouTube、媒体适合判断扩散和讨论，但需要继续验证。",
+    activeSources: "当前真实信源",
+    source: "信源",
+    tier: "等级",
+    platform: "平台",
+    type: "类型",
+    status: "状态",
+    adminTitle: "管理后台",
+    adminCaption: "后台功能收敛在这里，不再主导普通用户首页。",
+    recompute: "重新聚类和计分",
+    sourceMetric: "信源数",
+    clusterMetric: "聚类数",
+    selectedMetric: "精选事件",
+    eventAdmin: "事件管理",
+    event: "事件",
+    category: "分类",
+    hotScore: "热度",
+    selectedScore: "精选",
+    actions: "操作",
+    view: "查看",
+    feedback: "反馈建议",
+    loadingFeedback: "正在读取本地反馈...",
+    noFeedback: "暂无反馈。",
+    saving: "正在保存...",
+    feedbackSaved: "已收到，感谢反馈。",
+    feedbackFailed: "保存失败，请稍后再试。",
+    feedbackCaption: "写下你希望逮奇雷达改进的地方。标题和内容必填，邮箱选填。",
+    feedbackTitle: "标题",
+    feedbackContent: "内容",
+    feedbackEmail: "邮箱（选填）",
+    submitFeedback: "提交反馈"
+  },
+  en: {
+    home: "Home",
+    brief: "Daily",
+    sources: "Sources",
+    connectingSources: "Connecting live sources",
+    newswireUpdated: "Newswire updated",
+    brandSubline: "An AI technology paper for everyday readers",
+    searchPlaceholder: "Search companies, models, events",
+    emptyFeed: "No matching events. Try another keyword.",
+    loadedCount: "Showing {visibleCount} / {total}",
+    loadedAll: "Showing all {total}",
+    scrollMore: "Scroll for the next 20 items",
+    read: "Read",
+    unread: "Unread",
+    openOriginal: "Open source",
+    closeDetail: "Close detail",
+    closeFeedback: "Close feedback",
+    whyItMatters: "Why it matters",
+    drawerWhyFallback: "The captured material is not enough for a stronger impact judgement yet. Open the source to verify.",
+    fullSummary: "Full brief",
+    drawerDetailFallback: "This public feed only exposed a title, summary, or link. Open the source for the complete article.",
+    sourceJudgement: "Source judgement",
+    eventTimeline: "Timeline",
+    capturedContent: "Captured content",
+    sourceSnippetEmpty: "This source did not provide a useful excerpt beyond the title. Open it for the full text.",
+    openThisSource: "Open this source",
+    sourceCount: "{count} sources",
+    highTrustCount: "{count} high-trust",
+    latestUpdate: "Updated {latest}",
+    filters: "Filters",
+    pastBriefs: "Previous dailies",
+    briefHistoryMeta: "{count} items · {start} - {end}",
+    issueNumber: "Issue {number}",
+    dailyPaper: "AI Tech Daily",
+    dailyStats: "{events} selected · {sources} sources",
+    copiedLink: "Link copied",
+    copyLink: "Copy short link",
+    insideToday: "Inside today",
+    watchList: "Watch list",
+    itemCount: "{count} items",
+    sourceFootnotes: "Source notes",
+    importancePrefix: "Importance: {text}",
+    trusted: "High trust",
+    verified: "Multi-source",
+    needsVerification: "Needs verification",
+    community: "Community buzz",
+    sourceMissing: "Source pending",
+    oneHighTrustSource: "1 high-trust source",
+    oneSource: "1 source",
+    sourceBrief: "{sourceCount} sources · {highTrust} high-trust",
+    rising: "Rising",
+    cooling: "Cooling",
+    watching: "Watch",
+    steady: "Steady",
+    briefGenerating: "The daily brief is being generated.",
+    aihotDisclosure: "{count} X items came through AIHOT aggregation. Titles and summaries may have been edited or translated; open the source for verification.",
+    aggregatorDisclosure: "This event includes aggregator material. Read the aggregate brief and original link together.",
+    sourcesTitle: "Source Notes",
+    sourcesCaption: "Public sources currently connected, and how each type should be used.",
+    trustedSourceExplain: "Official blogs, research releases, social posts, and code releases are best for facts.",
+    verifiedSourceExplain: "Independent mentions across platforms reduce reliance on a single item.",
+    communitySourceExplain: "Communities, HN, YouTube, and media help measure spread, but still need verification.",
+    activeSources: "Active Live Sources",
+    source: "Source",
+    tier: "Tier",
+    platform: "Platform",
+    type: "Type",
+    status: "Status",
+    adminTitle: "Admin",
+    adminCaption: "Operational tools live here, away from the reader homepage.",
+    recompute: "Fetch and rescore",
+    sourceMetric: "Sources",
+    clusterMetric: "Clusters",
+    selectedMetric: "Selected",
+    eventAdmin: "Event Admin",
+    event: "Event",
+    category: "Category",
+    hotScore: "Hot",
+    selectedScore: "Selected",
+    actions: "Actions",
+    view: "View",
+    feedback: "Feedback",
+    loadingFeedback: "Loading feedback...",
+    noFeedback: "No feedback yet.",
+    saving: "Saving...",
+    feedbackSaved: "Received. Thanks for the feedback.",
+    feedbackFailed: "Could not save. Try again later.",
+    feedbackCaption: "Tell us what Radar.Degotchi should improve. Title and content are required; email is optional.",
+    feedbackTitle: "Title",
+    feedbackContent: "Content",
+    feedbackEmail: "Email (optional)",
+    submitFeedback: "Submit feedback"
+  }
+};
 
 function buildBriefFootnotes(stories) {
   const items = [];
@@ -1684,6 +1984,12 @@ function formatNewspaperDate(value) {
 function loadThemeMode() {
   const stored = localStorage.getItem(THEME_STORAGE_KEY);
   return ["system", "light", "dark"].includes(stored) ? stored : "system";
+}
+
+function loadLanguage() {
+  const stored = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+  if (stored === "en" || stored === "zh") return stored;
+  return "en";
 }
 
 function loadReadState() {

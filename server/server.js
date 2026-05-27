@@ -33,10 +33,11 @@ app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/api/health", (_req, res) => {
+  const llmConfig = getLlmConfig();
   res.json({
     ok: true,
-    modelConfigured: Boolean(process.env.LLM_BASE_URL && process.env.LLM_API_KEY && process.env.LLM_MODEL),
-    model: process.env.LLM_MODEL || null,
+    modelConfigured: Boolean(llmConfig.baseUrl && llmConfig.apiKey && llmConfig.model),
+    model: llmConfig.model || null,
     liveSources: liveSourceConfigs.length,
     editorialEnrichment: "cached_batch",
     autoRefreshMs: AUTO_REFRESH_MS,
@@ -232,6 +233,14 @@ function createFallbackSnapshot(error) {
       failedSourceCount: liveSourceConfigs.length,
       error: error?.message || "live_ingest_failed"
     }
+  };
+}
+
+function getLlmConfig() {
+  return {
+    baseUrl: process.env.LLM_BASE_URL || process.env.SF_BASE_URL || "",
+    apiKey: process.env.LLM_API_KEY || process.env.SF_API_KEY || "",
+    model: process.env.LLM_MODEL || process.env.SF_MODEL || "deepseek-chat"
   };
 }
 
