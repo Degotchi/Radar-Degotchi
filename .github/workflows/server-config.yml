@@ -63,6 +63,37 @@ jobs:
               docker exec de_npm sh -lc 'sqlite3 /data/database.sqlite ".tables" 2>/dev/null || true; sqlite3 /data/database.sqlite ".schema proxy_host" 2>/dev/null || true' || true
               echo "== npm proxy rows =="
               docker exec de_npm sh -lc 'sqlite3 /data/database.sqlite "select id,domain_names,forward_scheme,forward_host,forward_port,enabled,certificate_id from proxy_host;" 2>/dev/null || true' || true
+              echo "== host sqlite proxy rows =="
+              printf '%s\n' \
+                'import json' \
+                'import sqlite3' \
+                'from pathlib import Path' \
+                'db = Path("/var/lib/docker/volumes/degotchi_npm_data/_data/database.sqlite")' \
+                'print(f"db_exists={db.exists()} path={db}")' \
+                'conn = sqlite3.connect(db)' \
+                'conn.row_factory = sqlite3.Row' \
+                'tables = [row[0] for row in conn.execute("select name from sqlite_master where type='"'"'table'"'"' order by name")]' \
+                'print("tables=" + ",".join(tables))' \
+                'for table in ["proxy_host", "certificate", "redirection_host", "dead_host", "stream"]:' \
+                '    if table not in tables:' \
+                '        continue' \
+                '    print(f"-- schema {table} --")' \
+                '    for row in conn.execute(f"pragma table_info({table})"):' \
+                '        print(dict(row))' \
+                '    print(f"-- rows {table} --")' \
+                '    rows = conn.execute(f"select * from {table}").fetchall()' \
+                '    for row in rows:' \
+                '        d = dict(row)' \
+                '        for key in list(d):' \
+                '            if key in {"meta", "advanced_config", "locations"} and d[key]:' \
+                '                d[key] = str(d[key])[:240]' \
+                '        print(json.dumps(d, ensure_ascii=False, sort_keys=True))' \
+                | python3 || true
+              echo "== generated proxy confs =="
+              for file in /var/lib/docker/volumes/degotchi_npm_data/_data/nginx/proxy_host/*.conf; do
+                echo "--- $file"
+                sed -n '1,220p' "$file"
+              done
           REMOTE
             sleep 8
           done
