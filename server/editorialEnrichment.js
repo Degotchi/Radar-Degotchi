@@ -2,12 +2,16 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ProxyAgent, fetch as undiciFetch } from "undici";
 
-const CACHE_PATH = fileURLToPath(new URL("../.cache/event-editorial.json", import.meta.url));
-const DEFAULT_LIMIT = 12;
-const BATCH_SIZE = 2;
-const LLM_TIMEOUT_MS = 60000;
-const LLM_MAX_ATTEMPTS = 3;
+const DEFAULT_CACHE_PATH = fileURLToPath(new URL("../.cache/event-editorial.json", import.meta.url));
+const CACHE_PATH = process.env.EDITORIAL_CACHE_PATH || DEFAULT_CACHE_PATH;
+const DEFAULT_LIMIT = Number.POSITIVE_INFINITY;
+const BATCH_SIZE = Number(process.env.AI_ENRICHMENT_BATCH_SIZE || 5);
+const LLM_TIMEOUT_MS = Number(process.env.AI_ENRICHMENT_TIMEOUT_MS || 45000);
+const LLM_MAX_ATTEMPTS = Number(process.env.AI_ENRICHMENT_MAX_ATTEMPTS || 2);
+let cachedProxyUrl = "";
+let cachedProxyDispatcher = null;
 
 export async function applyEditorialEnrichment(snapshot, { allowLlm = false, force = false, limit = DEFAULT_LIMIT } = {}) {
   const cache = await loadCache();
@@ -20,26 +24,25 @@ export async function applyEditorialEnrichment(snapshot, { allowLlm = false, for
     const normalized = normalizeEditorial(event, cached ?? fallbackEditorial(event));
     const needsEditorial =
       !cached ||
-      !normalized.translations.zh.summary ||
-      !normalized.translations.en.summary ||
-      !normalized.translations.zh.detail ||
-      !normalized.translations.en.detail ||
-      !cleanBullets(normalized.translations.zh.bullets, 3).length ||
-      !cleanBullets(normalized.translations.en.bullets, 3).length;
+      !hasRequiredEditorialFields(normalized) ||
+      !hasMeaningfulBilingualText(event, normalized);
     if (index < limit && needsEditorial) {
       missing.push({ key, event });
     }
     return applyEditorialToEvent(event, normalized, key);
   });
 
-  let llmError = "";
+  let generatedItems = [];
+  let llmErrors = [];
   if (allowLlm && missing.length && isLlmConfigured()) {
-    const generated = await generateEditorialBatches(missing).catch((error) => {
-      llmError = error.message;
-      return [];
+    const result = await generateEditorialBatches(missing).catch((error) => {
+      llmErrors = [formatLlmError(error)];
+      return { generated: [], errors: llmErrors };
     });
-    if (generated.length) {
-      for (const item of generated) {
+    generatedItems = result.generated ?? [];
+    llmErrors = result.errors ?? llmErrors;
+    if (generatedItems.length) {
+      for (const item of generatedItems) {
         entries[item.key] = normalizeGeneratedEditorial(item);
       }
       await saveCache({ ...cache, entries, updatedAt: new Date().toISOString() });
@@ -68,9 +71,12 @@ export async function applyEditorialEnrichment(snapshot, { allowLlm = false, for
       editorial: {
         cachedItems: Object.keys(entries).length,
         llmConfigured: isLlmConfigured(),
-        llmUsedThisRun: Boolean(allowLlm && missing.length && !llmError),
-        llmError,
-        enrichedTopLimit: limit
+        llmUsedThisRun: generatedItems.length > 0,
+        llmError: llmErrors.join(" | ").slice(0, 1200),
+        llmGeneratedItems: generatedItems.length,
+        llmMissingItems: missing.length,
+        enrichedTopLimit: Number.isFinite(limit) ? limit : events.length,
+        translatedItems: events.filter((event) => hasMeaningfulBilingualText(event, normalizeEditorial(event, { translations: event.translations }))).length
       }
     }
   };
@@ -191,10 +197,24 @@ function readableBullets(event) {
 
 async function generateEditorialBatches(items) {
   const generated = [];
+  const errors = [];
   for (let index = 0; index < items.length; index += BATCH_SIZE) {
-    generated.push(...(await generateEditorialBatch(items.slice(index, index + BATCH_SIZE))));
+    const batch = items.slice(index, index + BATCH_SIZE);
+    try {
+      generated.push(...(await generateEditorialBatch(batch)));
+    } catch (error) {
+      errors.push(`batch ${index + 1}-${index + batch.length}: ${formatLlmError(error)}`);
+      if (batch.length === 1) continue;
+      for (const item of batch) {
+        try {
+          generated.push(...(await generateEditorialBatch([item])));
+        } catch (singleError) {
+          errors.push(`single ${item.key}: ${formatLlmError(singleError)}`);
+        }
+      }
+    }
   }
-  return generated;
+  return { generated, errors };
 }
 
 async function generateEditorialBatch(items) {
@@ -208,7 +228,7 @@ async function generateEditorialBatch(items) {
     body: JSON.stringify({
       model: llm.model,
       temperature: 0.2,
-      max_tokens: 1800,
+      max_tokens: items.length > 1 ? Math.min(900 + items.length * 1100, 7000) : 2200,
       messages: [
         {
           role: "system",
@@ -226,9 +246,9 @@ async function generateEditorialBatch(items) {
               category: event.category,
               sourceCount: event.sources?.length ?? event.sourceIds?.length ?? 0,
               sourceNames: event.sources?.map((source) => source.name).slice(0, 4) ?? [],
-              snippets: event.relatedItems?.slice(0, 4).map((item) => ({
+              snippets: event.relatedItems?.slice(0, 3).map((item) => ({
                 title: item.title,
-                summary: cleanLine(item.summary, 240),
+                summary: cleanLine(item.summary, 180),
                 source: item.platform,
                 originalSource: item.originalSource,
                 url: item.url
@@ -241,7 +261,8 @@ async function generateEditorialBatch(items) {
   });
 
   if (!response.ok) {
-    throw new Error(`Editorial LLM request failed: ${response.status}`);
+    const errorText = cleanLine(await response.text(), 220);
+    throw new Error(`Editorial LLM request failed: ${response.status}${errorText ? ` ${errorText}` : ""}`);
   }
 
   const data = await response.json();
@@ -252,12 +273,47 @@ async function generateEditorialBatch(items) {
     : [];
 }
 
+function hasRequiredEditorialFields(editorial) {
+  return Boolean(
+    editorial.translations.zh.title &&
+      editorial.translations.en.title &&
+      editorial.translations.zh.summary &&
+      editorial.translations.en.summary &&
+      editorial.translations.zh.detail &&
+      editorial.translations.en.detail &&
+      cleanBullets(editorial.translations.zh.bullets, 3).length &&
+      cleanBullets(editorial.translations.en.bullets, 3).length
+  );
+}
+
+function hasMeaningfulBilingualText(event, editorial) {
+  const zh = editorial.translations.zh;
+  const en = editorial.translations.en;
+  const sourceText = [event.title, event.summary, ...(event.relatedItems ?? []).map((item) => `${item.title} ${item.summary}`)].join(" ");
+  const zhText = [zh.title, zh.summary, zh.detail, ...(zh.bullets ?? [])].join(" ");
+  const enText = [en.title, en.summary, en.detail, ...(en.bullets ?? [])].join(" ");
+  const sourceLooksChinese = hasHan(sourceText);
+  const sourceLooksEnglish = !sourceLooksChinese && /[A-Za-z]{4,}/.test(sourceText);
+
+  if (sourceLooksEnglish && !hasHan(zhText)) return false;
+  if (sourceLooksChinese && !/[A-Za-z]{4,}/.test(enText)) return false;
+  if (normalize([zh.summary, zh.detail].join(" ")) === normalize([en.summary, en.detail].join(" "))) return false;
+  if (sourceLooksEnglish && normalize([zh.title, zh.summary].join(" ")) === normalize([event.title, event.summary].join(" "))) return false;
+  return true;
+}
+
+function hasHan(value) {
+  return /\p{Script=Han}/u.test(String(value ?? ""));
+}
+
 async function fetchLlmWithRetry(url, options) {
   let lastError = null;
   for (let attempt = 1; attempt <= LLM_MAX_ATTEMPTS; attempt += 1) {
     try {
-      return await fetch(url, {
+      const dispatcher = getProxyDispatcher(url);
+      return await undiciFetch(url, {
         ...options,
+        ...(dispatcher ? { dispatcher } : {}),
         signal: AbortSignal.timeout(LLM_TIMEOUT_MS)
       });
     } catch (error) {
@@ -268,6 +324,42 @@ async function fetchLlmWithRetry(url, options) {
     }
   }
   throw lastError;
+}
+
+function getProxyDispatcher(targetUrl) {
+  const proxyUrl =
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy ||
+    process.env.ALL_PROXY ||
+    process.env.all_proxy ||
+    "";
+  if (!proxyUrl) return null;
+
+  const hostname = new URL(targetUrl).hostname;
+  if (shouldBypassProxy(hostname)) return null;
+
+  if (proxyUrl !== cachedProxyUrl) {
+    cachedProxyUrl = proxyUrl;
+    cachedProxyDispatcher = new ProxyAgent(proxyUrl);
+  }
+  return cachedProxyDispatcher;
+}
+
+function shouldBypassProxy(hostname) {
+  const noProxy = process.env.NO_PROXY || process.env.no_proxy || "";
+  if (!noProxy) return false;
+  const normalizedHost = hostname.toLowerCase();
+  return noProxy
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean)
+    .some((entry) => entry === "*" || normalizedHost === entry || (entry.startsWith(".") && normalizedHost.endsWith(entry)) || normalizedHost.endsWith(`.${entry}`));
+}
+
+function formatLlmError(error) {
+  return [error?.name, error?.message, error?.cause?.code, error?.cause?.message].filter(Boolean).join(": ");
 }
 
 function editorialKey(event) {

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { ProxyAgent, fetch as undiciFetch } from "undici";
 import { rules as defaultRules } from "./mockData.js";
 
 const USER_AGENT =
@@ -8,9 +9,12 @@ const MAX_ITEMS_PER_SOURCE = 12;
 const REQUEST_TIMEOUT_MS = 16000;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_FETCH_ATTEMPTS = 3;
+const LIVE_SOURCE_CONCURRENCY = Number(process.env.LIVE_SOURCE_CONCURRENCY || 3);
 
 let cachedDataset = null;
 let pendingDataset = null;
+let cachedProxyUrl = "";
+let cachedProxyDispatcher = null;
 
 export const liveSourceConfigs = [
   {
@@ -353,7 +357,7 @@ export const liveSourceConfigs = [
 
 export async function fetchLiveData({ force = false } = {}) {
   const startedAt = Date.now();
-  const results = await mapWithConcurrency(liveSourceConfigs, 6, fetchSource);
+  const results = await mapWithConcurrency(liveSourceConfigs, LIVE_SOURCE_CONCURRENCY, fetchSource);
   const successfulResults = results.filter((result) => result.ok && result.items.length);
   const sources = results.map((result) => toRuntimeSource(result.config, result));
   const rawItems = dedupeRawItems(successfulResults.flatMap((result) => result.items)).slice(0, 220);
@@ -460,8 +464,10 @@ async function fetchSource(config) {
 
   for (let attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt += 1) {
     try {
-      const response = await fetch(config.url, {
+      const dispatcher = getProxyDispatcher(config.url);
+      const response = await undiciFetch(config.url, {
         headers,
+        ...(dispatcher ? { dispatcher } : {}),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
       });
       const text = await response.text();
@@ -476,7 +482,7 @@ async function fetchSource(config) {
       const items = parseByConfig(config, text).slice(0, MAX_ITEMS_PER_SOURCE);
       return { ok: true, config, status: response.status, items, durationMs: Date.now() - startedAt, error: "" };
     } catch (error) {
-      lastError = error.message;
+      lastError = formatFetchError(error);
       if (attempt < MAX_FETCH_ATTEMPTS) {
         await delay(350 * attempt);
         continue;
@@ -492,6 +498,42 @@ async function fetchSource(config) {
     durationMs: Date.now() - startedAt,
     error: lastError
   };
+}
+
+function getProxyDispatcher(targetUrl) {
+  const proxyUrl =
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy ||
+    process.env.ALL_PROXY ||
+    process.env.all_proxy ||
+    "";
+  if (!proxyUrl) return null;
+
+  const hostname = new URL(targetUrl).hostname;
+  if (shouldBypassProxy(hostname)) return null;
+
+  if (proxyUrl !== cachedProxyUrl) {
+    cachedProxyUrl = proxyUrl;
+    cachedProxyDispatcher = new ProxyAgent(proxyUrl);
+  }
+  return cachedProxyDispatcher;
+}
+
+function shouldBypassProxy(hostname) {
+  const noProxy = process.env.NO_PROXY || process.env.no_proxy || "";
+  if (!noProxy) return false;
+  const normalizedHost = hostname.toLowerCase();
+  return noProxy
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean)
+    .some((entry) => entry === "*" || normalizedHost === entry || (entry.startsWith(".") && normalizedHost.endsWith(entry)) || normalizedHost.endsWith(`.${entry}`));
+}
+
+function formatFetchError(error) {
+  return [error?.name, error?.message, error?.cause?.code, error?.cause?.message].filter(Boolean).join(": ");
 }
 
 function parseByConfig(config, text) {

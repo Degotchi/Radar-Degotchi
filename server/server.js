@@ -26,6 +26,8 @@ const AUTO_REFRESH_MS = Number(process.env.AUTO_REFRESH_MS || 60 * 60 * 1000);
 
 let snapshotCache = null;
 let snapshotRefreshPromise = null;
+let snapshotRefreshMeta = null;
+let refreshSequence = 0;
 const clientDistPath = fileURLToPath(new URL("../dist", import.meta.url));
 const clientIndexPath = join(clientDistPath, "index.html");
 
@@ -170,20 +172,29 @@ if (existsSync(clientIndexPath)) {
 
 async function getSnapshot() {
   if (snapshotCache) return snapshotCache;
-  return refreshSnapshot({ reason: "request" });
+  return refreshSnapshot({ allowAi: true, reason: "request" });
 }
 
 async function refreshSnapshot({ force = false, allowAi = false, reason = "auto" } = {}) {
-  if (snapshotRefreshPromise) return snapshotRefreshPromise;
+  const needsAi = Boolean(allowAi);
+  if (snapshotRefreshPromise && (!needsAi || snapshotRefreshMeta?.allowAi)) return snapshotRefreshPromise;
 
+  const sequence = (refreshSequence += 1);
+  snapshotRefreshMeta = { allowAi: needsAi, reason };
   snapshotRefreshPromise = createSnapshot({ force, allowAi })
     .then(async (snapshot) => {
-      snapshotCache = withRefreshPolicy(snapshot, reason);
-      await ensureDailyBrief(snapshotCache);
-      return snapshotCache;
+      const nextSnapshot = withRefreshPolicy(snapshot, reason);
+      if (sequence === refreshSequence) {
+        snapshotCache = nextSnapshot;
+        await ensureDailyBrief(snapshotCache);
+      }
+      return nextSnapshot;
     })
     .finally(() => {
-      snapshotRefreshPromise = null;
+      if (sequence === refreshSequence) {
+        snapshotRefreshPromise = null;
+        snapshotRefreshMeta = null;
+      }
     });
 
   return snapshotRefreshPromise;
@@ -196,9 +207,10 @@ async function createSnapshot({ force = false, allowAi = false } = {}) {
     dataMode: "live",
     diagnostics: dataset.diagnostics
   };
+  const configuredLimit = process.env.AI_ENRICHMENT_LIMIT ? Number(process.env.AI_ENRICHMENT_LIMIT) : snapshot.events.length;
   return applyEditorialEnrichment(snapshot, {
     allowLlm: allowAi,
-    limit: Number(process.env.AI_ENRICHMENT_LIMIT || 12)
+    limit: Number.isFinite(configuredLimit) && configuredLimit > 0 ? configuredLimit : snapshot.events.length
   });
 }
 
@@ -247,14 +259,14 @@ function getLlmConfig() {
 app.listen(port, () => {
   console.log(`AI Signal Cockpit API listening on http://localhost:${port}`);
   startAutoRefresh();
-  refreshSnapshot({ force: true, reason: "startup" }).catch((error) => {
+  refreshSnapshot({ force: true, allowAi: true, reason: "startup" }).catch((error) => {
     console.error("Initial refresh failed:", error.message);
   });
 });
 
 function startAutoRefresh() {
   const hourly = setInterval(() => {
-    refreshSnapshot({ force: true, reason: "auto-hourly" }).catch((error) => {
+    refreshSnapshot({ force: true, allowAi: true, reason: "auto-hourly" }).catch((error) => {
       console.error("Hourly refresh failed:", error.message);
     });
   }, AUTO_REFRESH_MS);
@@ -264,7 +276,7 @@ function startAutoRefresh() {
 
 function scheduleDailyBriefRun() {
   const timer = setTimeout(() => {
-    refreshSnapshot({ force: true, reason: "daily-04:00" })
+    refreshSnapshot({ force: true, allowAi: true, reason: "daily-04:00" })
       .then((snapshot) => ensureDailyBrief(snapshot, { force: true }))
       .catch((error) => {
         console.error("Daily brief generation failed:", error.message);
