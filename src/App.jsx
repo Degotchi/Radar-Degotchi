@@ -8,12 +8,25 @@ import {
   Search,
   ShieldCheck,
   TrendingUp,
-  X
+  X,
 } from "lucide-react";
 import { motion, useScroll, useSpring, useTransform } from "motion/react";
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
-import { events as mockEvents, jobs as mockJobs, rawItems as mockRawItems, rules as mockRules, sources as mockSources } from "./data/mockData.js";
+import {
+  events as mockEvents,
+  jobs as mockJobs,
+  rawItems as mockRawItems,
+  rules as mockRules,
+  sources as mockSources,
+} from "./data/mockData.js";
 import { buildSnapshot } from "./lib/scoring.js";
 import degotchiMarkUrl from "./assets/degotchi-mark-black.png";
 
@@ -22,16 +35,16 @@ const fallbackSnapshot = buildSnapshot({
   sources: mockSources,
   rawItems: mockRawItems,
   rules: mockRules,
-  jobs: mockJobs
+  jobs: mockJobs,
 });
 
 const categoryTone = {
-  "模型发布": "blue",
-  "产品更新": "green",
-  "行业动态": "orange",
-  "开源生态": "violet",
-  "论文研究": "sky",
-  "技巧与观点": "slate"
+  模型发布: "blue",
+  产品更新: "green",
+  行业动态: "orange",
+  开源生态: "violet",
+  论文研究: "sky",
+  技巧与观点: "slate",
 };
 
 const MotionDiv = motion.div;
@@ -42,7 +55,7 @@ const routeByView = {
   brief: "/brief",
   sources: "/sources",
   feedback: "/feedback",
-  admin: "/admin"
+  admin: "/admin",
 };
 
 const FEED_BATCH_SIZE = 20;
@@ -52,25 +65,36 @@ const READ_STATE_STORAGE_KEY = "ai-hot-radar-read-state";
 const LANGUAGE_STORAGE_KEY = "ai-hot-radar-language";
 
 function viewFromPath(pathname) {
-  if (pathname === "/brief" || pathname.startsWith("/brief/") || pathname.startsWith("/s/")) return "brief";
+  if (
+    pathname === "/brief" ||
+    pathname.startsWith("/brief/") ||
+    pathname.startsWith("/s/")
+  )
+    return "brief";
   if (pathname === "/sources") return "sources";
   if (pathname === "/admin") return "admin";
   return "home";
 }
 
 function briefKeyFromPath(pathname) {
-  if (pathname.startsWith("/brief/")) return decodeURIComponent(pathname.split("/")[2] ?? "");
-  if (pathname.startsWith("/s/")) return decodeURIComponent(pathname.split("/")[2] ?? "");
+  if (pathname.startsWith("/brief/"))
+    return decodeURIComponent(pathname.split("/")[2] ?? "");
+  if (pathname.startsWith("/s/"))
+    return decodeURIComponent(pathname.split("/")[2] ?? "");
   return "";
 }
 
 export default function App() {
   const [snapshot, setSnapshot] = useState(fallbackSnapshot);
-  const [currentPath, setCurrentPath] = useState(() => window.location.pathname);
+  const [currentPath, setCurrentPath] = useState(
+    () => window.location.pathname,
+  );
   const [query, setQuery] = useState("");
   const [briefFilter, setBriefFilter] = useState("全部");
   const [selectedEventId, setSelectedEventId] = useState(null);
-  const [feedbackOpen, setFeedbackOpen] = useState(() => window.location.pathname === routeByView.feedback);
+  const [feedbackOpen, setFeedbackOpen] = useState(
+    () => window.location.pathname === routeByView.feedback,
+  );
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
   const [themeMode, setThemeMode] = useState(loadThemeMode);
@@ -83,11 +107,18 @@ export default function App() {
     let cancelled = false;
     async function loadInitialData() {
       try {
-        const [snapshotResponse, dailiesResponse] = await Promise.all([fetch("/api/snapshot"), fetch("/api/dailies?take=30")]);
-        const [snapshotData, dailiesData] = await Promise.all([snapshotResponse.json(), dailiesResponse.json()]);
+        const [snapshotResponse, dailiesResponse] = await Promise.all([
+          fetch("/api/snapshot"),
+          fetch("/api/dailies?take=30"),
+        ]);
+        const [snapshotData, dailiesData] = await Promise.all([
+          snapshotResponse.json(),
+          dailiesResponse.json(),
+        ]);
         if (cancelled) return;
         setSnapshot(snapshotData);
-        if (Array.isArray(dailiesData.articles)) setDailies(dailiesData.articles);
+        if (Array.isArray(dailiesData.articles))
+          setDailies(dailiesData.articles);
       } catch {
         if (!cancelled) setSnapshot(fallbackSnapshot);
       } finally {
@@ -103,7 +134,8 @@ export default function App() {
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     function applyTheme() {
-      const resolvedTheme = themeMode === "system" ? (media.matches ? "dark" : "light") : themeMode;
+      const resolvedTheme =
+        themeMode === "system" ? (media.matches ? "dark" : "light") : themeMode;
       document.documentElement.dataset.theme = resolvedTheme;
       document.documentElement.dataset.themeMode = themeMode;
       localStorage.setItem(THEME_STORAGE_KEY, themeMode);
@@ -126,17 +158,25 @@ export default function App() {
     let cancelled = false;
     async function refreshQuietly() {
       try {
-        const [snapshotResponse, dailiesResponse] = await Promise.all([fetch("/api/snapshot"), fetch("/api/dailies?take=30")]);
-        const [snapshotData, dailiesData] = await Promise.all([snapshotResponse.json(), dailiesResponse.json()]);
+        const [snapshotResponse, dailiesResponse] = await Promise.all([
+          fetch("/api/snapshot"),
+          fetch("/api/dailies?take=30"),
+        ]);
+        const [snapshotData, dailiesData] = await Promise.all([
+          snapshotResponse.json(),
+          dailiesResponse.json(),
+        ]);
         if (cancelled) return;
         setSnapshot(snapshotData);
-        if (Array.isArray(dailiesData.articles)) setDailies(dailiesData.articles);
+        if (Array.isArray(dailiesData.articles))
+          setDailies(dailiesData.articles);
       } catch {
         if (!cancelled) setToast("自动刷新失败，继续显示上一批内容");
         window.setTimeout(() => setToast(""), 2400);
       }
     }
-    const intervalMs = snapshot.refreshPolicy?.intervalMs || DEFAULT_AUTO_REFRESH_MS;
+    const intervalMs =
+      snapshot.refreshPolicy?.intervalMs || DEFAULT_AUTO_REFRESH_MS;
     const timer = window.setInterval(refreshQuietly, intervalMs);
     function handleVisibilityChange() {
       if (document.visibilityState === "visible") refreshQuietly();
@@ -166,7 +206,9 @@ export default function App() {
   }, [currentPath]);
 
   const selectedEvent = useMemo(() => {
-    return snapshot.events.find((event) => event.id === selectedEventId) ?? null;
+    return (
+      snapshot.events.find((event) => event.id === selectedEventId) ?? null
+    );
   }, [selectedEventId, snapshot.events]);
 
   const filteredEvents = useMemo(() => {
@@ -184,7 +226,11 @@ export default function App() {
         event.translations?.en?.summary,
         event.translations?.en?.insight,
         ...event.entities,
-        ...(event.relatedItems ?? []).flatMap((item) => [item.title, item.summary, item.originalSource])
+        ...(event.relatedItems ?? []).flatMap((item) => [
+          item.title,
+          item.summary,
+          item.originalSource,
+        ]),
       ]
         .filter(Boolean)
         .join(" ")
@@ -194,7 +240,8 @@ export default function App() {
         briefFilter === "全部" ||
         event.category === briefFilter ||
         (briefFilter === "正在升温" && event.trend === "rising") ||
-        (briefFilter === "持续观察" && (event.status === "watch" || event.trend === "volatile"));
+        (briefFilter === "持续观察" &&
+          (event.status === "watch" || event.trend === "volatile"));
       return matchesQuery && matchesFilter;
     });
   }, [snapshot.events, query, briefFilter]);
@@ -249,12 +296,20 @@ export default function App() {
   const activeBriefKey = briefKeyFromPath(currentPath);
 
   useEffect(() => {
-    if (!activeBriefKey || dailies.some((article) => article.id === activeBriefKey || article.shortCode === activeBriefKey)) return;
+    if (
+      !activeBriefKey ||
+      dailies.some(
+        (article) =>
+          article.id === activeBriefKey || article.shortCode === activeBriefKey,
+      )
+    )
+      return;
     let cancelled = false;
     fetch(`/api/daily/${encodeURIComponent(activeBriefKey)}`)
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => {
-        if (!cancelled && data?.article) setDailies((current) => [data.article, ...current]);
+        if (!cancelled && data?.article)
+          setDailies((current) => [data.article, ...current]);
       })
       .catch(() => {});
     return () => {
@@ -263,10 +318,16 @@ export default function App() {
   }, [activeBriefKey, dailies]);
 
   const activeArticle =
-    dailies.find((article) => article.id === activeBriefKey || article.shortCode === activeBriefKey) ??
+    dailies.find(
+      (article) =>
+        article.id === activeBriefKey || article.shortCode === activeBriefKey,
+    ) ??
     dailies[0] ??
     articleFromSnapshot(snapshot, language);
-  const readIds = useMemo(() => new Set(readState.readIds), [readState.readIds]);
+  const readIds = useMemo(
+    () => new Set(readState.readIds),
+    [readState.readIds],
+  );
 
   return (
     <div className="product-shell">
@@ -307,26 +368,57 @@ export default function App() {
         />
       )}
 
-      {activeView === "sources" && <SourcesPage sources={snapshot.sources} sourceMix={snapshot.sourceMix} language={language} />}
-
-      {activeView === "admin" && (
-        <AdminPage snapshot={snapshot} onRecompute={runRecompute} onOpenEvent={openEvent} language={language} />
+      {activeView === "sources" && (
+        <SourcesPage
+          sources={snapshot.sources}
+          sourceMix={snapshot.sourceMix}
+          language={language}
+        />
       )}
 
-      {activeView !== "admin" && <FeedbackDock onOpen={openFeedback} language={language} />}
-      {feedbackOpen && <FeedbackModal onClose={closeFeedback} language={language} />}
-      <EventDrawer event={selectedEvent} onClose={() => setSelectedEventId(null)} language={language} />
+      {activeView === "admin" && (
+        <AdminPage
+          snapshot={snapshot}
+          onRecompute={runRecompute}
+          onOpenEvent={openEvent}
+          language={language}
+        />
+      )}
+
+      {activeView !== "admin" && (
+        <FeedbackDock onOpen={openFeedback} language={language} />
+      )}
+      {feedbackOpen && (
+        <FeedbackModal onClose={closeFeedback} language={language} />
+      )}
+      <EventDrawer
+        event={selectedEvent}
+        onClose={() => setSelectedEventId(null)}
+        language={language}
+      />
     </div>
   );
 }
 
-function AppHeader({ activeView, navigateTo, query, setQuery, loading, themeMode, setThemeMode, language, setLanguage }) {
+function AppHeader({
+  activeView,
+  navigateTo,
+  query,
+  setQuery,
+  loading,
+  themeMode,
+  setThemeMode,
+  language,
+  setLanguage,
+}) {
   const navItems = [
     { id: "home", label: t(language, "home") },
     { id: "brief", label: t(language, "brief") },
-    { id: "sources", label: t(language, "sources") }
+    { id: "sources", label: t(language, "sources") },
   ];
-  const editionStatus = loading ? t(language, "connectingSources") : t(language, "newswireUpdated");
+  const editionStatus = loading
+    ? t(language, "connectingSources")
+    : t(language, "newswireUpdated");
 
   return (
     <header className="app-header">
@@ -337,7 +429,11 @@ function AppHeader({ activeView, navigateTo, query, setQuery, loading, themeMode
       </div>
 
       <div className="masthead-row">
-        <a className="brand-button" href={routeByView.home} onClick={(event) => handleRouteClick(event, "home", navigateTo)}>
+        <a
+          className="brand-button"
+          href={routeByView.home}
+          onClick={(event) => handleRouteClick(event, "home", navigateTo)}
+        >
           <span className="brand-logo">
             <img src={degotchiMarkUrl} alt="" />
           </span>
@@ -349,7 +445,11 @@ function AppHeader({ activeView, navigateTo, query, setQuery, loading, themeMode
 
         <div className="header-search">
           <Search size={16} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t(language, "searchPlaceholder")} />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t(language, "searchPlaceholder")}
+          />
         </div>
 
         <div className="masthead-tools">
@@ -359,7 +459,9 @@ function AppHeader({ activeView, navigateTo, query, setQuery, loading, themeMode
                 key={item.id}
                 className={activeView === item.id ? "active" : ""}
                 href={routeByView[item.id]}
-                onClick={(event) => handleRouteClick(event, item.id, navigateTo)}
+                onClick={(event) =>
+                  handleRouteClick(event, item.id, navigateTo)
+                }
               >
                 {item.label}
               </a>
@@ -394,7 +496,7 @@ function LanguageToggle({ language, setLanguage }) {
 function ThemeSwitcher({ themeMode, setThemeMode }) {
   const options = [
     { id: "light", label: "日刊" },
-    { id: "dark", label: "夜刊" }
+    { id: "dark", label: "夜刊" },
   ];
 
   function commitTheme(nextMode) {
@@ -411,13 +513,20 @@ function ThemeSwitcher({ themeMode, setThemeMode }) {
     const root = document.documentElement;
     const x = event.clientX;
     const y = event.clientY;
-    const radius = Math.ceil(Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y)));
+    const radius = Math.ceil(
+      Math.hypot(
+        Math.max(x, window.innerWidth - x),
+        Math.max(y, window.innerHeight - y),
+      ),
+    );
 
     root.style.setProperty("--theme-reveal-x", `${x}px`);
     root.style.setProperty("--theme-reveal-y", `${y}px`);
     root.style.setProperty("--theme-reveal-radius", `${radius}px`);
 
-    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
     if (prefersReducedMotion) {
       commitTheme(nextMode);
       return;
@@ -429,7 +538,7 @@ function ThemeSwitcher({ themeMode, setThemeMode }) {
         onCommit: () => commitTheme(nextMode),
         radius,
         x,
-        y
+        y,
       });
       return;
     }
@@ -442,7 +551,12 @@ function ThemeSwitcher({ themeMode, setThemeMode }) {
       {options.map((option) => (
         <button
           key={option.id}
-          className={(themeMode === option.id || (themeMode === "system" && option.id === "light")) ? "active" : ""}
+          className={
+            themeMode === option.id ||
+            (themeMode === "system" && option.id === "light")
+              ? "active"
+              : ""
+          }
           onClick={(event) => handleThemeClick(event, option.id)}
           aria-pressed={themeMode === option.id}
           type="button"
@@ -456,7 +570,9 @@ function ThemeSwitcher({ themeMode, setThemeMode }) {
 
 function resolveThemeMode(mode) {
   if (mode === "system") {
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    return window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
   }
   return mode;
 }
@@ -479,7 +595,15 @@ function runFallbackThemeReveal({ color, onCommit, radius, x, y }) {
 }
 
 function handleRouteClick(event, view, navigateTo) {
-  if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+  if (
+    event.defaultPrevented ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey ||
+    event.button !== 0
+  )
+    return;
   event.preventDefault();
   navigateTo(view);
 }
@@ -492,14 +616,22 @@ function HomePage({
   onOpenEvent,
   readIds,
   lastReadEventId,
-  language
+  language,
 }) {
   const feedTopRef = useRef(null);
   const loadMoreRef = useRef(null);
   const [visibleCount, setVisibleCount] = useState(FEED_BATCH_SIZE);
-  const categories = ["全部", "正在升温", "持续观察", ...new Set(snapshot.events.map((event) => event.category))];
+  const categories = [
+    "全部",
+    "正在升温",
+    "持续观察",
+    ...new Set(snapshot.events.map((event) => event.category)),
+  ];
   const orderedEvents = useMemo(() => {
-    return [...events].sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime());
+    return [...events].sort(
+      (a, b) =>
+        new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime(),
+    );
   }, [events]);
   const loadedEvents = orderedEvents.slice(0, visibleCount);
   const visibleEnd = Math.min(visibleCount, orderedEvents.length);
@@ -511,9 +643,11 @@ function HomePage({
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries[0]?.isIntersecting) return;
-        setVisibleCount((count) => Math.min(count + FEED_BATCH_SIZE, orderedEvents.length));
+        setVisibleCount((count) =>
+          Math.min(count + FEED_BATCH_SIZE, orderedEvents.length),
+        );
       },
-      { rootMargin: "360px 0px 520px" }
+      { rootMargin: "360px 0px 520px" },
     );
 
     observer.observe(loadMoreRef.current);
@@ -538,7 +672,11 @@ function HomePage({
       <section className="feed-layout" ref={feedTopRef}>
         <section className="feed-main">
           <div className="feed-tab-sticky">
-            <div className="filter-pills" role="tablist" aria-label="事件分类筛选">
+            <div
+              className="filter-pills"
+              role="tablist"
+              aria-label="事件分类筛选"
+            >
               {categories.map((category) => (
                 <button
                   key={category}
@@ -551,7 +689,13 @@ function HomePage({
               ))}
             </div>
           </div>
-          <EventFeed events={loadedEvents} onOpenEvent={onOpenEvent} readIds={readIds} lastReadEventId={lastReadEventId} language={language} />
+          <EventFeed
+            events={loadedEvents}
+            onOpenEvent={onOpenEvent}
+            readIds={readIds}
+            lastReadEventId={lastReadEventId}
+            language={language}
+          />
           <FeedLoadMore
             loadMoreRef={loadMoreRef}
             hasMore={hasMoreEvents}
@@ -565,12 +709,34 @@ function HomePage({
   );
 }
 
-function EventFeed({ events, onOpenEvent, readIds, lastReadEventId, language }) {
+function EventFeed({
+  events,
+  onOpenEvent,
+  readIds,
+  lastReadEventId,
+  language,
+}) {
   const { scrollY } = useScroll();
-  const dayX = useSpring(useTransform(scrollY, [0, 280], [0, -5]), { stiffness: 220, damping: 32, mass: 0.35 });
-  const dayY = useSpring(useTransform(scrollY, [0, 280], [0, 4]), { stiffness: 240, damping: 30, mass: 0.35 });
-  const dayOpacity = useSpring(useTransform(scrollY, [0, 280], [1, 0.86]), { stiffness: 220, damping: 28, mass: 0.35 });
-  const ruleScale = useSpring(useTransform(scrollY, [0, 280], [0.72, 1]), { stiffness: 220, damping: 30, mass: 0.35 });
+  const dayX = useSpring(useTransform(scrollY, [0, 280], [0, -5]), {
+    stiffness: 220,
+    damping: 32,
+    mass: 0.35,
+  });
+  const dayY = useSpring(useTransform(scrollY, [0, 280], [0, 4]), {
+    stiffness: 240,
+    damping: 30,
+    mass: 0.35,
+  });
+  const dayOpacity = useSpring(useTransform(scrollY, [0, 280], [1, 0.86]), {
+    stiffness: 220,
+    damping: 28,
+    mass: 0.35,
+  });
+  const ruleScale = useSpring(useTransform(scrollY, [0, 280], [0.72, 1]), {
+    stiffness: 220,
+    damping: 30,
+    mass: 0.35,
+  });
 
   if (!events.length) {
     return <div className="empty-state">{t(language, "emptyFeed")}</div>;
@@ -580,11 +746,23 @@ function EventFeed({ events, onOpenEvent, readIds, lastReadEventId, language }) 
     <div className="timeline-feed">
       {groups.map((group) => (
         <section key={group.key} className="timeline-day">
-          <TimelineDayLabel label={group.label} x={dayX} y={dayY} opacity={dayOpacity} ruleScale={ruleScale} />
+          <TimelineDayLabel
+            label={group.label}
+            x={dayX}
+            y={dayY}
+            opacity={dayOpacity}
+            ruleScale={ruleScale}
+          />
           {group.items.map(({ event, rank }) => (
             <Fragment key={event.id}>
               {event.id === lastReadEventId && <LastReadMarker />}
-              <EventTimelineItem event={event} rank={rank} onOpenEvent={onOpenEvent} isRead={readIds.has(event.id)} language={language} />
+              <EventTimelineItem
+                event={event}
+                rank={rank}
+                onOpenEvent={onOpenEvent}
+                isRead={readIds.has(event.id)}
+                language={language}
+              />
             </Fragment>
           ))}
         </section>
@@ -595,10 +773,22 @@ function EventFeed({ events, onOpenEvent, readIds, lastReadEventId, language }) 
 
 function TimelineDayLabel({ label, x, y, opacity, ruleScale }) {
   return (
-    <MotionDiv className="timeline-day-label" style={{ x, y, opacity }} aria-label={label}>
-      <MotionSpan className="timeline-day-kicker" style={{ scaleX: ruleScale }} aria-hidden="true" />
+    <MotionDiv
+      className="timeline-day-label"
+      style={{ x, y, opacity }}
+      aria-label={label}
+    >
+      <MotionSpan
+        className="timeline-day-kicker"
+        style={{ scaleX: ruleScale }}
+        aria-hidden="true"
+      />
       <span className="timeline-day-text">{label}</span>
-      <MotionSpan className="timeline-day-rule" style={{ scaleX: ruleScale }} aria-hidden="true" />
+      <MotionSpan
+        className="timeline-day-rule"
+        style={{ scaleX: ruleScale }}
+        aria-hidden="true"
+      />
     </MotionDiv>
   );
 }
@@ -616,8 +806,16 @@ function LastReadMarker() {
 function FeedLoadMore({ loadMoreRef, hasMore, visibleCount, total, language }) {
   if (!total) return null;
   return (
-    <div ref={hasMore ? loadMoreRef : null} className={`feed-load-more ${hasMore ? "" : "done"}`} aria-live="polite">
-      <span>{hasMore ? t(language, "loadedCount", { visibleCount, total }) : t(language, "loadedAll", { total })}</span>
+    <div
+      ref={hasMore ? loadMoreRef : null}
+      className={`feed-load-more ${hasMore ? "" : "done"}`}
+      aria-live="polite"
+    >
+      <span>
+        {hasMore
+          ? t(language, "loadedCount", { visibleCount, total })
+          : t(language, "loadedAll", { total })}
+      </span>
       {hasMore && <small>{t(language, "scrollMore")}</small>}
     </div>
   );
@@ -648,7 +846,8 @@ function EventTimelineItem({ event, rank, onOpenEvent, isRead, language }) {
       tabIndex={0}
       onClick={() => onOpenEvent(event.id)}
       onKeyDown={(keyboardEvent) => {
-        if (keyboardEvent.key === "Enter" || keyboardEvent.key === " ") onOpenEvent(event.id);
+        if (keyboardEvent.key === "Enter" || keyboardEvent.key === " ")
+          onOpenEvent(event.id);
       }}
     >
       <div className="timeline-time">
@@ -659,13 +858,21 @@ function EventTimelineItem({ event, rank, onOpenEvent, isRead, language }) {
       <div className="timeline-card">
         <div className="timeline-card-head">
           <span className="rank-chip">#{rank}</span>
-          <Tag tone={categoryTone[event.category]}>{categoryLabel(event.category, language)}</Tag>
-          <span className={`trend-chip ${event.trend}`}>{trendText(event.trend, language)}</span>
+          <Tag tone={categoryTone[event.category]}>
+            {categoryLabel(event.category, language)}
+          </Tag>
+          <span className={`trend-chip ${event.trend}`}>
+            {trendText(event.trend, language)}
+          </span>
           <TrustBadge event={event} language={language} />
-          <span className={`read-chip ${isRead ? "read" : "unread"}`}>{isRead ? t(language, "read") : t(language, "unread")}</span>
+          <span className={`read-chip ${isRead ? "read" : "unread"}`}>
+            {isRead ? t(language, "read") : t(language, "unread")}
+          </span>
         </div>
         <h2>{readable.title}</h2>
-        {readable.summary && <p className="timeline-summary">{readable.summary}</p>}
+        {readable.summary && (
+          <p className="timeline-summary">{readable.summary}</p>
+        )}
         {readable.why && (
           <p className="timeline-why">
             <CheckCircle2 size={15} />
@@ -727,26 +934,46 @@ function EvidenceLine({ event, compact = false, language }) {
 
 function EventDrawer({ event, onClose, language }) {
   if (!event) return null;
-  const timeline = [...event.relatedItems].sort((a, b) => new Date(a.publishedAt) - new Date(b.publishedAt));
-  const sourceNameById = Object.fromEntries(event.sources.map((source) => [source.id, source.name]));
+  const timeline = [...event.relatedItems].sort(
+    (a, b) => new Date(a.publishedAt) - new Date(b.publishedAt),
+  );
+  const sourceNameById = Object.fromEntries(
+    event.sources.map((source) => [source.id, source.name]),
+  );
   const primaryItem = event.relatedItems[0];
   const readable = eventReadableFields(event, language);
 
   return (
     <div className="drawer-backdrop" role="presentation" onMouseDown={onClose}>
-      <aside className="event-drawer" onMouseDown={(event) => event.stopPropagation()}>
-        <button className="drawer-close" onClick={onClose} aria-label={t(language, "closeDetail")}>
+      <aside
+        className="event-drawer"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <button
+          className="drawer-close"
+          onClick={onClose}
+          aria-label={t(language, "closeDetail")}
+        >
           <X size={18} />
         </button>
         <div className="drawer-header">
-          <Tag tone={categoryTone[event.category]}>{categoryLabel(event.category, language)}</Tag>
-          <span className={`trend-chip ${event.trend}`}>{trendText(event.trend, language)}</span>
+          <Tag tone={categoryTone[event.category]}>
+            {categoryLabel(event.category, language)}
+          </Tag>
+          <span className={`trend-chip ${event.trend}`}>
+            {trendText(event.trend, language)}
+          </span>
           <TrustBadge event={event} language={language} />
           <h2 className="drawer-title">{readable.title}</h2>
           {readable.summary && <p>{readable.summary}</p>}
           <div className="drawer-actions">
             {primaryItem && (
-              <a href={primaryItem.url} target="_blank" rel="noreferrer" className="drawer-source-link">
+              <a
+                href={primaryItem.url}
+                target="_blank"
+                rel="noreferrer"
+                className="drawer-source-link"
+              >
                 <ExternalLink size={15} />
                 {t(language, "openOriginal")}
               </a>
@@ -799,7 +1026,12 @@ function EventDrawer({ event, onClose, language }) {
           <h3>{t(language, "capturedContent")}</h3>
           <div className="source-detail-list">
             {timeline.map((item) => {
-              const snippet = sourceSnippetForDrawer(item, event, 260, language);
+              const snippet = sourceSnippetForDrawer(
+                item,
+                event,
+                260,
+                language,
+              );
               return (
                 <article key={item.id}>
                   <div className="source-detail-meta">
@@ -812,7 +1044,9 @@ function EventDrawer({ event, onClose, language }) {
                     {snippet ? (
                       <p>{snippet}</p>
                     ) : (
-                      <p className="source-snippet-empty">{t(language, "sourceSnippetEmpty")}</p>
+                      <p className="source-snippet-empty">
+                        {t(language, "sourceSnippetEmpty")}
+                      </p>
                     )}
                     <a href={item.url} target="_blank" rel="noreferrer">
                       {t(language, "openThisSource")}
@@ -829,42 +1063,78 @@ function EventDrawer({ event, onClose, language }) {
   );
 }
 
-function BriefPage({ article, dailies, events, onOpenEvent, navigateToPath, language }) {
+function BriefPage({
+  article,
+  dailies,
+  events,
+  onOpenEvent,
+  navigateToPath,
+  language,
+}) {
   const [activeCategory, setActiveCategory] = useState("全部");
   const [copied, setCopied] = useState(false);
-  const eventById = useMemo(() => new Map(events.map((event) => [event.id, event])), [events]);
-  const categories = ["全部", ...article.sections.map((section) => section.category)];
-  const highlights = useMemo(() => (article.highlights ?? []).map((event) => hydrateBriefEvent(event, eventById, language)), [article.highlights, eventById, language]);
+  const eventById = useMemo(
+    () => new Map(events.map((event) => [event.id, event])),
+    [events],
+  );
+  const categories = [
+    "全部",
+    ...article.sections.map((section) => section.category),
+  ];
+  const highlights = useMemo(
+    () =>
+      (article.highlights ?? []).map((event) =>
+        hydrateBriefEvent(event, eventById, language),
+      ),
+    [article.highlights, eventById, language],
+  );
   const leadStory = highlights[0] ?? null;
   const secondaryStories = highlights.slice(1, 4);
-  const highlightedIds = useMemo(() => new Set(highlights.map((event) => event.id)), [highlights]);
+  const highlightedIds = useMemo(
+    () => new Set(highlights.map((event) => event.id)),
+    [highlights],
+  );
   const sections = useMemo(() => {
     const sourceSections =
       activeCategory === "全部"
         ? article.sections
-        : article.sections.filter((section) => section.category === activeCategory);
+        : article.sections.filter(
+            (section) => section.category === activeCategory,
+          );
     return sourceSections
       .map((section) => ({
         ...section,
         events: section.events
           .map((event) => hydrateBriefEvent(event, eventById, language))
-          .filter((event) => activeCategory !== "全部" || !highlightedIds.has(event.id))
+          .filter(
+            (event) =>
+              activeCategory !== "全部" || !highlightedIds.has(event.id),
+          ),
       }))
       .filter((section) => section.events.length > 0);
   }, [activeCategory, article.sections, eventById, highlightedIds, language]);
   const watchStories = useMemo(() => {
-    const cooling = events.filter((event) => event.trend === "cooling").slice(0, 2).map((event) => toFallbackBriefEvent(event, language));
-    return dedupeEvents([...(article.watchList ?? []), ...cooling].map((event) => hydrateBriefEvent(event, eventById, language))).slice(0, 5);
+    const cooling = events
+      .filter((event) => event.trend === "cooling")
+      .slice(0, 2)
+      .map((event) => toFallbackBriefEvent(event, language));
+    return dedupeEvents(
+      [...(article.watchList ?? []), ...cooling].map((event) =>
+        hydrateBriefEvent(event, eventById, language),
+      ),
+    ).slice(0, 5);
   }, [article.watchList, eventById, events, language]);
   const allVisibleStories = [
     ...(leadStory ? [leadStory] : []),
     ...secondaryStories,
     ...sections.flatMap((section) => section.events),
-    ...watchStories
+    ...watchStories,
   ];
   const footnotes = buildBriefFootnotes(allVisibleStories);
   const editionNumber = editionNumberFromId(article.id);
-  const issueDate = formatNewspaperDate(article.windowEnd || article.generatedAt || article.id);
+  const issueDate = formatNewspaperDate(
+    article.windowEnd || article.generatedAt || article.id,
+  );
   const issueRange = `${formatDate(article.windowStart)} - ${formatDate(article.windowEnd)}`;
 
   async function copyShareLink() {
@@ -890,7 +1160,11 @@ function BriefPage({ article, dailies, events, onOpenEvent, navigateToPath, lang
           <h2>{t(language, "filters")}</h2>
           <div className="brief-filter-list">
             {categories.map((category) => (
-              <button key={category} className={activeCategory === category ? "active" : ""} onClick={() => setActiveCategory(category)}>
+              <button
+                key={category}
+                className={activeCategory === category ? "active" : ""}
+                onClick={() => setActiveCategory(category)}
+              >
                 {filterLabel(category, language)}
               </button>
             ))}
@@ -906,7 +1180,13 @@ function BriefPage({ article, dailies, events, onOpenEvent, navigateToPath, lang
                 onClick={() => navigateToPath(`/brief/${item.id}`)}
               >
                 <strong>{item.id}</strong>
-                <span>{t(language, "briefHistoryMeta", { count: item.eventCount, start: formatDate(item.windowStart), end: formatDate(item.windowEnd) })}</span>
+                <span>
+                  {t(language, "briefHistoryMeta", {
+                    count: item.eventCount,
+                    start: formatDate(item.windowStart),
+                    end: formatDate(item.windowEnd),
+                  })}
+                </span>
               </button>
             ))}
           </div>
@@ -928,7 +1208,12 @@ function BriefPage({ article, dailies, events, onOpenEvent, navigateToPath, lang
           <div className="newspaper-subline">
             <span>{t(language, "dailyPaper")}</span>
             <span>{issueRange}</span>
-            <span>{t(language, "dailyStats", { events: article.eventCount, sources: article.sourceCount })}</span>
+            <span>
+              {t(language, "dailyStats", {
+                events: article.eventCount,
+                sources: article.sourceCount,
+              })}
+            </span>
           </div>
         </header>
 
@@ -943,12 +1228,22 @@ function BriefPage({ article, dailies, events, onOpenEvent, navigateToPath, lang
         <div className="daily-article-body newspaper-body">
           {leadStory && activeCategory === "全部" && (
             <section className="newspaper-frontpage">
-              <NewspaperLeadStory event={leadStory} onOpenEvent={onOpenEvent} language={language} />
+              <NewspaperLeadStory
+                event={leadStory}
+                onOpenEvent={onOpenEvent}
+                language={language}
+              />
               <aside className="newspaper-briefs">
                 <span className="newspaper-section-label">INSIDE TODAY</span>
                 <h2>{t(language, "insideToday")}</h2>
                 {secondaryStories.map((event, index) => (
-                  <NewspaperBriefItem key={event.id} event={event} index={index + 1} onOpenEvent={onOpenEvent} language={language} />
+                  <NewspaperBriefItem
+                    key={event.id}
+                    event={event}
+                    index={index + 1}
+                    onOpenEvent={onOpenEvent}
+                    language={language}
+                  />
                 ))}
               </aside>
             </section>
@@ -967,7 +1262,13 @@ function BriefPage({ article, dailies, events, onOpenEvent, navigateToPath, lang
           </section>
 
           {sections.map((section, index) => (
-            <NewspaperSection key={section.category} section={section} index={index + 1} onOpenEvent={onOpenEvent} language={language} />
+            <NewspaperSection
+              key={section.category}
+              section={section}
+              index={index + 1}
+              onOpenEvent={onOpenEvent}
+              language={language}
+            />
           ))}
 
           {watchStories.length > 0 && (
@@ -978,7 +1279,14 @@ function BriefPage({ article, dailies, events, onOpenEvent, navigateToPath, lang
               </div>
               <div className="newspaper-watch-grid">
                 {watchStories.map((event, index) => (
-                  <NewspaperBriefItem key={event.id} event={event} index={index + 1} onOpenEvent={onOpenEvent} compact language={language} />
+                  <NewspaperBriefItem
+                    key={event.id}
+                    event={event}
+                    index={index + 1}
+                    onOpenEvent={onOpenEvent}
+                    compact
+                    language={language}
+                  />
                 ))}
               </div>
             </section>
@@ -995,7 +1303,10 @@ function NewspaperLeadStory({ event, onOpenEvent, language }) {
   const summary = storySummary(event, language);
   const why = storyWhy(event, language);
   return (
-    <button className="newspaper-lead-story" onClick={() => onOpenEvent(event.id)}>
+    <button
+      className="newspaper-lead-story"
+      onClick={() => onOpenEvent(event.id)}
+    >
       <span className="newspaper-section-label">LEAD STORY</span>
       <h2>{event.title}</h2>
       {summary && <p className="newspaper-lead-summary">{summary}</p>}
@@ -1017,17 +1328,28 @@ function NewspaperLeadStory({ event, onOpenEvent, language }) {
 
 function NewspaperSection({ section, index, onOpenEvent, language }) {
   return (
-    <section className="newspaper-news-section" id={`daily-${section.category}`}>
+    <section
+      className="newspaper-news-section"
+      id={`daily-${section.category}`}
+    >
       <header>
         <span>{String(index).padStart(2, "0")}</span>
         <div>
-          <small>{t(language, "itemCount", { count: section.events.length })}</small>
+          <small>
+            {t(language, "itemCount", { count: section.events.length })}
+          </small>
           <h2>{categoryLabel(section.category, language)}</h2>
         </div>
       </header>
       <div className="newspaper-column-grid">
         {section.events.map((event, eventIndex) => (
-          <NewspaperArticle key={event.id} event={event} index={eventIndex + 1} onOpenEvent={onOpenEvent} language={language} />
+          <NewspaperArticle
+            key={event.id}
+            event={event}
+            index={eventIndex + 1}
+            onOpenEvent={onOpenEvent}
+            language={language}
+          />
         ))}
       </div>
     </section>
@@ -1038,8 +1360,13 @@ function NewspaperArticle({ event, index, onOpenEvent, language }) {
   const summary = storySummary(event, language);
   const why = storyWhy(event, language);
   return (
-    <button className="newspaper-article-card" onClick={() => onOpenEvent(event.id)}>
-      <span className="newspaper-article-number">{String(index).padStart(2, "0")}</span>
+    <button
+      className="newspaper-article-card"
+      onClick={() => onOpenEvent(event.id)}
+    >
+      <span className="newspaper-article-number">
+        {String(index).padStart(2, "0")}
+      </span>
       <div className="newspaper-story-meta">
         <span>{event.trustLabel}</span>
         <span>{sourceBriefText(event, language)}</span>
@@ -1051,13 +1378,25 @@ function NewspaperArticle({ event, index, onOpenEvent, language }) {
   );
 }
 
-function NewspaperBriefItem({ event, index, onOpenEvent, compact = false, language }) {
+function NewspaperBriefItem({
+  event,
+  index,
+  onOpenEvent,
+  compact = false,
+  language,
+}) {
   return (
-    <button className={`newspaper-brief-item ${compact ? "compact" : ""}`} onClick={() => onOpenEvent(event.id)}>
+    <button
+      className={`newspaper-brief-item ${compact ? "compact" : ""}`}
+      onClick={() => onOpenEvent(event.id)}
+    >
       <span>{String(index).padStart(2, "0")}</span>
       <div>
         <strong>{event.title}</strong>
-        <small>{categoryLabel(event.category, language)} · {event.trustLabel} · {sourceBriefText(event, language)}</small>
+        <small>
+          {categoryLabel(event.category, language)} · {event.trustLabel} ·{" "}
+          {sourceBriefText(event, language)}
+        </small>
       </div>
     </button>
   );
@@ -1088,7 +1427,10 @@ function SourceFootnotes({ footnotes, language }) {
 function SourcesPage({ sources, sourceMix, language }) {
   return (
     <main className="simple-page">
-      <SectionTitle title={t(language, "sourcesTitle")} caption={t(language, "sourcesCaption")} />
+      <SectionTitle
+        title={t(language, "sourcesTitle")}
+        caption={t(language, "sourcesCaption")}
+      />
       <div className="source-explain-grid">
         <article>
           <ShieldCheck size={22} />
@@ -1153,7 +1495,8 @@ function AdminPage({ snapshot, onRecompute, onOpenEvent, language }) {
     fetch("/api/admin/feedback?take=100")
       .then((response) => response.json())
       .then((data) => {
-        if (!cancelled && Array.isArray(data.feedback)) setFeedbackItems(data.feedback);
+        if (!cancelled && Array.isArray(data.feedback))
+          setFeedbackItems(data.feedback);
       })
       .catch(() => {
         if (!cancelled) setFeedbackItems([]);
@@ -1169,16 +1512,29 @@ function AdminPage({ snapshot, onRecompute, onOpenEvent, language }) {
   return (
     <main className="admin-page">
       <div className="admin-head">
-        <SectionTitle eyebrow="Admin" title={t(language, "adminTitle")} caption={t(language, "adminCaption")} />
+        <SectionTitle
+          eyebrow="Admin"
+          title={t(language, "adminTitle")}
+          caption={t(language, "adminCaption")}
+        />
         <button className="primary-action" onClick={onRecompute}>
           {t(language, "recompute")}
         </button>
       </div>
       <div className="admin-metrics">
-        <Metric label={t(language, "sourceMetric")} value={snapshot.sources.length} />
+        <Metric
+          label={t(language, "sourceMetric")}
+          value={snapshot.sources.length}
+        />
         <Metric label="RawItem" value={snapshot.rawItems.length} />
-        <Metric label={t(language, "clusterMetric")} value={snapshot.clusters.length} />
-        <Metric label={t(language, "selectedMetric")} value={snapshot.metrics.selected} />
+        <Metric
+          label={t(language, "clusterMetric")}
+          value={snapshot.clusters.length}
+        />
+        <Metric
+          label={t(language, "selectedMetric")}
+          value={snapshot.metrics.selected}
+        />
       </div>
       <section className="source-table-card">
         <h2>{t(language, "eventAdmin")}</h2>
@@ -1202,7 +1558,10 @@ function AdminPage({ snapshot, onRecompute, onOpenEvent, language }) {
                 <td>{event.hotScore}</td>
                 <td>{event.selectedScore}</td>
                 <td>
-                  <button className="table-action" onClick={() => onOpenEvent(event.id)}>
+                  <button
+                    className="table-action"
+                    onClick={() => onOpenEvent(event.id)}
+                  >
                     {t(language, "view")}
                   </button>
                 </td>
@@ -1258,10 +1617,11 @@ function FeedbackModal({ onClose, language }) {
       const response = await fetch("/api/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, content, email })
+        body: JSON.stringify({ title, content, email }),
       });
       const data = await response.json();
-      if (!response.ok || !data.ok) throw new Error(data.error || "feedback_failed");
+      if (!response.ok || !data.ok)
+        throw new Error(data.error || "feedback_failed");
       setTitle("");
       setContent("");
       setEmail("");
@@ -1272,9 +1632,24 @@ function FeedbackModal({ onClose, language }) {
   }
 
   return (
-    <div className="feedback-modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <section className="feedback-card feedback-modal" role="dialog" aria-modal="true" aria-labelledby="feedback-title" onMouseDown={(event) => event.stopPropagation()}>
-        <button className="drawer-close feedback-close" type="button" onClick={onClose} aria-label={t(language, "closeFeedback")}>
+    <div
+      className="feedback-modal-backdrop"
+      role="presentation"
+      onMouseDown={onClose}
+    >
+      <section
+        className="feedback-card feedback-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="feedback-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <button
+          className="drawer-close feedback-close"
+          type="button"
+          onClick={onClose}
+          aria-label={t(language, "closeFeedback")}
+        >
           <X size={18} />
         </button>
         <SectionTitle
@@ -1286,21 +1661,45 @@ function FeedbackModal({ onClose, language }) {
         <form className="feedback-form" onSubmit={submitFeedback}>
           <label>
             <span>{t(language, "feedbackTitle")}</span>
-            <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} required />
+            <input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              maxLength={120}
+              required
+            />
           </label>
           <label>
             <span>{t(language, "feedbackContent")}</span>
-            <textarea value={content} onChange={(event) => setContent(event.target.value)} maxLength={2400} rows={8} required />
+            <textarea
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              maxLength={2400}
+              rows={8}
+              required
+            />
           </label>
           <label>
             <span>{t(language, "feedbackEmail")}</span>
-            <input value={email} onChange={(event) => setEmail(event.target.value)} maxLength={160} type="email" />
+            <input
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              maxLength={160}
+              type="email"
+            />
           </label>
           <div className="feedback-form-actions">
-            <button className="primary-action" disabled={status.type === "loading"} type="submit">
+            <button
+              className="primary-action"
+              disabled={status.type === "loading"}
+              type="submit"
+            >
               {t(language, "submitFeedback")}
             </button>
-            {status.message && <p className={`feedback-status ${status.type}`}>{status.message}</p>}
+            {status.message && (
+              <p className={`feedback-status ${status.type}`}>
+                {status.message}
+              </p>
+            )}
           </div>
         </form>
       </section>
@@ -1332,7 +1731,11 @@ function Tag({ children, tone = "gray" }) {
 }
 
 function TrustBadge({ event, language }) {
-  return <span className={`trust-badge ${trustTone(event)}`}>{trustLabel(event, language)}</span>;
+  return (
+    <span className={`trust-badge ${trustTone(event)}`}>
+      {trustLabel(event, language)}
+    </span>
+  );
 }
 
 function FactorList({ factors }) {
@@ -1352,9 +1755,11 @@ function FactorList({ factors }) {
 }
 
 function trustLabel(event, language = "zh") {
-  if (event.primaryTier === "T1" || event.confidence >= 74) return t(language, "trusted");
+  if (event.primaryTier === "T1" || event.confidence >= 74)
+    return t(language, "trusted");
   if (event.platformCount >= 3) return t(language, "verified");
-  if (event.status === "watch" || event.trend === "volatile") return t(language, "needsVerification");
+  if (event.status === "watch" || event.trend === "volatile")
+    return t(language, "needsVerification");
   return t(language, "community");
 }
 
@@ -1366,14 +1771,23 @@ function trustTone(event) {
 }
 
 function highTrustSourceCount(event) {
-  return event.sources.filter((source) => source.tier === "T1" || source.tier === "T1.5").length;
+  return event.sources.filter(
+    (source) => source.tier === "T1" || source.tier === "T1.5",
+  ).length;
 }
 
 function displayTitle(event, language = "zh") {
   const localized = localizedEditorial(event, language);
-  const title = cleanText(localized.title || event.editorTitle || event.title, 110);
-  const summary = cleanText(localized.summary || event.editorSummary || event.summary, 54).replace(/[。.!！?？]+$/g, "");
-  if (language === "zh" && isMostlyLatin(title) && hasCjk(summary)) return summary;
+  const title = cleanText(
+    localized.title || event.editorTitle || event.title,
+    110,
+  );
+  const summary = cleanText(
+    localized.summary || event.editorSummary || event.summary,
+    54,
+  ).replace(/[。.!！?？]+$/g, "");
+  if (language === "zh" && isMostlyLatin(title) && hasCjk(summary))
+    return summary;
   return title;
 }
 
@@ -1394,7 +1808,10 @@ function eventBullets(event, language = "zh") {
   const candidates = [
     ...(localized.bullets ?? []),
     ...(event.editorBullets ?? []),
-    ...(event.relatedItems ?? []).flatMap((item) => [sourceSnippet(item, 130), item.title])
+    ...(event.relatedItems ?? []).flatMap((item) => [
+      sourceSnippet(item, 130),
+      item.title,
+    ]),
   ];
   return dedupeText(
     candidates
@@ -1403,9 +1820,13 @@ function eventBullets(event, language = "zh") {
         (item) =>
           item &&
           normalizeText(item) !== normalizeText(event.title) &&
-          normalizeText(item) !== normalizeText(localized.insight || event.editorInsight) &&
-          normalizeText(item) !== normalizeText(localized.summary || event.editorSummary || event.summary)
-      )
+          normalizeText(item) !==
+            normalizeText(localized.insight || event.editorInsight) &&
+          normalizeText(item) !==
+            normalizeText(
+              localized.summary || event.editorSummary || event.summary,
+            ),
+      ),
   ).slice(0, 3);
 }
 
@@ -1417,33 +1838,42 @@ function eventReadableFields(event, language = "zh") {
       localized.summary,
       event.editorSummary,
       event.summary,
-      ...(event.relatedItems ?? []).map((item) => item.summary)
+      ...(event.relatedItems ?? []).map((item) => item.summary),
     ],
     [title],
-    190
+    190,
   );
   const why = pickDistinctText(
-    [localized.insight, event.editorInsight, ...(localized.bullets ?? []), ...(event.editorBullets ?? []), ...eventBullets(event, language)],
+    [
+      localized.insight,
+      event.editorInsight,
+      ...(localized.bullets ?? []),
+      ...(event.editorBullets ?? []),
+      ...eventBullets(event, language),
+    ],
     [title, summary],
-    150
+    150,
   );
-  const bullets = eventBullets(event, language).filter((item) => !isDuplicateText(item, [title, summary, why])).slice(0, 3);
+  const bullets = eventBullets(event, language)
+    .filter((item) => !isDuplicateText(item, [title, summary, why]))
+    .slice(0, 3);
   const detail = pickDistinctText(
     [
       localized.detail,
       event.editorDetail,
       ...bullets,
-      ...(event.relatedItems ?? []).map((item) => item.summary)
+      ...(event.relatedItems ?? []).map((item) => item.summary),
     ],
     [title, summary, why],
-    300
+    300,
   );
   return { title, summary, why, detail, bullets };
 }
 
 function sourceSnippet(item, maxLength = 180) {
   const summary = cleanText(item.summary, maxLength);
-  if (summary && normalizeText(summary) !== normalizeText(item.title)) return summary;
+  if (summary && normalizeText(summary) !== normalizeText(item.title))
+    return summary;
   return cleanText(item.title, maxLength);
 }
 
@@ -1457,16 +1887,18 @@ function sourceSnippetForDrawer(item, event, maxLength = 240, language = "zh") {
       event.summary,
       event.editorInsight,
       event.editorDetail,
-      ...(event.editorBullets ?? [])
+      ...(event.editorBullets ?? []),
     ],
-    maxLength
+    maxLength,
   );
 }
 
 function sourceItemLabel(item, sourceNameById) {
   const sourceName = sourceNameById[item.sourceId] ?? item.platform;
   if (item.originalSource && !/^HN points/i.test(item.originalSource)) {
-    return isXUrl(item) && !/^X[:：]/i.test(item.originalSource) ? `X：${item.originalSource}` : item.originalSource;
+    return isXUrl(item) && !/^X[:：]/i.test(item.originalSource)
+      ? `X：${item.originalSource}`
+      : item.originalSource;
   }
   return sourceName;
 }
@@ -1474,7 +1906,11 @@ function sourceItemLabel(item, sourceNameById) {
 function sourceContextLabel(item, sourceNameById) {
   const sourceName = sourceNameById[item.sourceId] ?? item.platform;
   const originalSource = item.originalSource || "";
-  if (item.platform === "AIHOT" && (isXUrl(item) || /^X[:：]/i.test(originalSource))) return `${sourceName} 整理/翻译`;
+  if (
+    item.platform === "AIHOT" &&
+    (isXUrl(item) || /^X[:：]/i.test(originalSource))
+  )
+    return `${sourceName} 整理/翻译`;
   if (item.platform === "AIHOT") return `${sourceName} 聚合整理`;
   if (isXUrl(item)) return "X 原帖";
   if (/youtube\.com|youtu\.be/i.test(item.url)) return "视频标题/说明";
@@ -1485,12 +1921,16 @@ function sourceContextLabel(item, sourceNameById) {
 
 function sourceDisclosureText(event, language = "zh") {
   const aihotXCount = (event.relatedItems ?? []).filter(
-    (item) => item.platform === "AIHOT" && (isXUrl(item) || /^X[:：]/i.test(item.originalSource || ""))
+    (item) =>
+      item.platform === "AIHOT" &&
+      (isXUrl(item) || /^X[:：]/i.test(item.originalSource || "")),
   ).length;
   if (aihotXCount) {
     return t(language, "aihotDisclosure", { count: aihotXCount });
   }
-  const aggregatorCount = (event.sources ?? []).filter((source) => source.type === "aggregator").length;
+  const aggregatorCount = (event.sources ?? []).filter(
+    (source) => source.type === "aggregator",
+  ).length;
   if (aggregatorCount) return t(language, "aggregatorDisclosure");
   return "";
 }
@@ -1501,7 +1941,10 @@ function isXUrl(item) {
 
 function cleanText(value, maxLength = 180) {
   const text = String(value ?? "")
-    .replace(/^(?=[\s\S]{0,340}(?:aside_block|btn_text|href|image))[\s\S]{0,340}?\)\]>\s*/i, "")
+    .replace(
+      /^(?=[\s\S]{0,340}(?:aside_block|btn_text|href|image))[\s\S]{0,340}?\)\]>\s*/i,
+      "",
+    )
     .replace(/\s+/g, " ")
     .replace(/https?\s*[：:]\s*\/\/\S+/gi, "")
     .trim();
@@ -1528,20 +1971,24 @@ function dedupeText(values) {
 }
 
 function trendText(trend, language = "zh") {
-  return {
-    rising: t(language, "rising"),
-    cooling: t(language, "cooling"),
-    volatile: t(language, "watching"),
-    steady: t(language, "steady"),
-    watch: t(language, "watching")
-  }[trend] ?? trend;
+  return (
+    {
+      rising: t(language, "rising"),
+      cooling: t(language, "cooling"),
+      volatile: t(language, "watching"),
+      steady: t(language, "steady"),
+      watch: t(language, "watching"),
+    }[trend] ?? trend
+  );
 }
 
 function articleFromSnapshot(snapshot, language = "zh") {
   const brief = snapshot.dailyBrief;
   const sections = brief.sections.map((section) => ({
     category: section.category,
-    events: section.events.map((event) => toFallbackBriefEvent(event, language))
+    events: section.events.map((event) =>
+      toFallbackBriefEvent(event, language),
+    ),
   }));
   const highlights = sections.flatMap((section) => section.events).slice(0, 4);
   return {
@@ -1552,15 +1999,19 @@ function articleFromSnapshot(snapshot, language = "zh") {
     subtitle: "04:00 自动汇总过去 24 小时的 AI 和科技热点",
     generatedAt: brief.generatedAt,
     scheduledAt: brief.generatedAt,
-    windowStart: new Date(new Date(brief.generatedAt).getTime() - 24 * 60 * 60 * 1000).toISOString(),
+    windowStart: new Date(
+      new Date(brief.generatedAt).getTime() - 24 * 60 * 60 * 1000,
+    ).toISOString(),
     windowEnd: brief.generatedAt,
     eventCount: highlights.length,
     sourceCount: new Set(highlights.map((event) => event.id)).size,
     lead: highlights[0]?.summary || t(language, "briefGenerating"),
     highlights,
     sections,
-    watchList: brief.watchList.map((event) => toFallbackBriefEvent(event, language)),
-    tags: []
+    watchList: brief.watchList.map((event) =>
+      toFallbackBriefEvent(event, language),
+    ),
+    tags: [],
   };
 }
 
@@ -1571,12 +2022,16 @@ function toFallbackBriefEvent(event, language = "zh") {
     title: readable.title,
     category: event.category,
     summary: readable.summary || event.editorSummary || event.summary,
-    insight: readable.why || event.editorInsight || event.editorSummary || event.summary,
+    insight:
+      readable.why ||
+      event.editorInsight ||
+      event.editorSummary ||
+      event.summary,
     trustLabel: trustLabel(event, language),
     lastSeenAt: event.lastSeenAt,
     sourceCount: event.sources?.length ?? event.sourceIds?.length ?? 0,
     highTrustSourceCount: highTrustSourceCount(event),
-    primaryUrl: event.relatedItems?.[0]?.url ?? ""
+    primaryUrl: event.relatedItems?.[0]?.url ?? "",
   };
 }
 
@@ -1588,7 +2043,7 @@ function hydrateBriefEvent(event, eventById, language = "zh") {
       title: cleanText(event.title, 120),
       summary: cleanText(event.summary, 180),
       insight: cleanText(event.insight, 120),
-      fullEvent: null
+      fullEvent: null,
     };
   }
   const readable = eventReadableFields(fullEvent, language);
@@ -1604,45 +2059,57 @@ function hydrateBriefEvent(event, eventById, language = "zh") {
     sourceCount: fullEvent.sources?.length ?? event.sourceCount ?? 0,
     highTrustSourceCount: highTrustSourceCount(fullEvent),
     primaryUrl: fullEvent.relatedItems?.[0]?.url ?? event.primaryUrl ?? "",
-    fullEvent
+    fullEvent,
   };
 }
 
 function storySummary(event, language = "zh") {
-  const readable = event.fullEvent ? eventReadableFields(event.fullEvent, language) : null;
+  const readable = event.fullEvent
+    ? eventReadableFields(event.fullEvent, language)
+    : null;
   return pickDistinctText(
     [
       readable?.summary,
       event.summary,
       event.fullEvent?.editorSummary,
       event.fullEvent?.summary,
-      event.fullEvent?.relatedItems?.find((item) => normalizeText(item.summary) !== normalizeText(item.title))?.summary
+      event.fullEvent?.relatedItems?.find(
+        (item) => normalizeText(item.summary) !== normalizeText(item.title),
+      )?.summary,
     ],
     [event.title, event.insight],
-    210
+    210,
   );
 }
 
 function storyWhy(event, language = "zh") {
-  const readable = event.fullEvent ? eventReadableFields(event.fullEvent, language) : null;
+  const readable = event.fullEvent
+    ? eventReadableFields(event.fullEvent, language)
+    : null;
   return pickDistinctText(
     [
       readable?.why,
       event.insight,
       event.fullEvent?.editorInsight,
       event.fullEvent?.editorBullets?.[0],
-      event.fullEvent ? eventBullets(event.fullEvent, language)[0] : ""
+      event.fullEvent ? eventBullets(event.fullEvent, language)[0] : "",
     ],
     [event.title, event.summary],
-    140
+    140,
   );
 }
 
 function sourceBriefText(event, language = "zh") {
-  const sourceCount = event.fullEvent?.sources?.length ?? event.sourceCount ?? 0;
-  const highTrust = event.fullEvent ? highTrustSourceCount(event.fullEvent) : event.highTrustSourceCount ?? 0;
+  const sourceCount =
+    event.fullEvent?.sources?.length ?? event.sourceCount ?? 0;
+  const highTrust = event.fullEvent
+    ? highTrustSourceCount(event.fullEvent)
+    : (event.highTrustSourceCount ?? 0);
   if (!sourceCount) return t(language, "sourceMissing");
-  if (sourceCount === 1) return highTrust ? t(language, "oneHighTrustSource") : t(language, "oneSource");
+  if (sourceCount === 1)
+    return highTrust
+      ? t(language, "oneHighTrustSource")
+      : t(language, "oneSource");
   return t(language, "sourceBrief", { sourceCount, highTrust });
 }
 
@@ -1650,11 +2117,20 @@ function localizedEditorial(event, language = "zh") {
   const preferred = event.translations?.[language] ?? {};
   const fallback = event.translations?.zh ?? event.translations?.en ?? {};
   return {
-    title: preferred.title || fallback.title || event.editorTitle || event.title,
-    summary: preferred.summary || fallback.summary || event.editorSummary || event.summary,
+    title:
+      preferred.title || fallback.title || event.editorTitle || event.title,
+    summary:
+      preferred.summary ||
+      fallback.summary ||
+      event.editorSummary ||
+      event.summary,
     insight: preferred.insight || fallback.insight || event.editorInsight || "",
     detail: preferred.detail || fallback.detail || event.editorDetail || "",
-    bullets: preferred.bullets?.length ? preferred.bullets : fallback.bullets?.length ? fallback.bullets : event.editorBullets ?? []
+    bullets: preferred.bullets?.length
+      ? preferred.bullets
+      : fallback.bullets?.length
+        ? fallback.bullets
+        : (event.editorBullets ?? []),
   };
 }
 
@@ -1673,7 +2149,10 @@ function filterLabel(filter, language = "zh") {
 
 function t(language = "zh", key, values = {}) {
   const template = UI_TEXT[language]?.[key] ?? UI_TEXT.zh[key] ?? key;
-  return Object.entries(values).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), template);
+  return Object.entries(values).reduce(
+    (text, [name, value]) => text.replaceAll(`{${name}}`, String(value)),
+    template,
+  );
 }
 
 const CATEGORY_LABELS = {
@@ -1683,7 +2162,7 @@ const CATEGORY_LABELS = {
     行业动态: "行业动态",
     开源生态: "开源生态",
     论文研究: "论文研究",
-    技巧与观点: "技巧与观点"
+    技巧与观点: "技巧与观点",
   },
   en: {
     模型发布: "Models",
@@ -1691,21 +2170,21 @@ const CATEGORY_LABELS = {
     行业动态: "Industry",
     开源生态: "Open Source",
     论文研究: "Research",
-    技巧与观点: "Ideas"
-  }
+    技巧与观点: "Ideas",
+  },
 };
 
 const FILTER_LABELS = {
   zh: {
     全部: "全部",
     正在升温: "正在升温",
-    持续观察: "持续观察"
+    持续观察: "持续观察",
   },
   en: {
     全部: "All",
     正在升温: "Rising",
-    持续观察: "Watch"
-  }
+    持续观察: "Watch",
+  },
 };
 
 const UI_TEXT = {
@@ -1727,13 +2206,16 @@ const UI_TEXT = {
     closeDetail: "关闭详情",
     closeFeedback: "关闭反馈",
     whyItMatters: "为什么重要",
-    drawerWhyFallback: "目前抓到的信息还不足以提炼更多影响判断，建议先打开原文核验。",
+    drawerWhyFallback:
+      "目前抓到的信息还不足以提炼更多影响判断，建议先打开原文核验。",
     fullSummary: "完整概要",
-    drawerDetailFallback: "当前公开接口只提供标题、摘要或链接，暂未抓到更长正文；请通过下方来源打开原文查看完整内容。",
+    drawerDetailFallback:
+      "当前公开接口只提供标题、摘要或链接，暂未抓到更长正文；请通过下方来源打开原文查看完整内容。",
     sourceJudgement: "来源判断",
     eventTimeline: "事件时间线",
     capturedContent: "已抓到的内容",
-    sourceSnippetEmpty: "这条来源没有提供区别于标题的正文摘录，建议直接打开原文查看完整内容。",
+    sourceSnippetEmpty:
+      "这条来源没有提供区别于标题的正文摘录，建议直接打开原文查看完整内容。",
     openThisSource: "打开这一条来源",
     sourceCount: "来自 {count} 个信源",
     highTrustCount: "{count} 个高可信来源",
@@ -1764,13 +2246,17 @@ const UI_TEXT = {
     watching: "持续观察",
     steady: "稳定传播",
     briefGenerating: "今日简报正在生成中。",
-    aihotDisclosure: "{count} 条 X 来源来自 AIHOT 聚合源，标题和摘要可能已被中文整理；“打开原文”会跳到对应 X 页面核验。",
-    aggregatorDisclosure: "包含聚合源整理内容，建议把聚合摘要和原始链接一起看。",
+    aihotDisclosure:
+      "{count} 条 X 来源来自 AIHOT 聚合源，标题和摘要可能已被中文整理；“打开原文”会跳到对应 X 页面核验。",
+    aggregatorDisclosure:
+      "包含聚合源整理内容，建议把聚合摘要和原始链接一起看。",
     sourcesTitle: "信源说明",
     sourcesCaption: "当前接入的公开来源，以及每类来源适合用来判断什么。",
-    trustedSourceExplain: "官方博客、研究发布、官方社交和代码发布，适合做事实基础。",
+    trustedSourceExplain:
+      "官方博客、研究发布、官方社交和代码发布，适合做事实基础。",
     verifiedSourceExplain: "多个平台独立提及，同一事件不依赖单条消息判断。",
-    communitySourceExplain: "KOL、HN、YouTube、媒体适合判断扩散和讨论，但需要继续验证。",
+    communitySourceExplain:
+      "KOL、HN、YouTube、媒体适合判断扩散和讨论，但需要继续验证。",
     activeSources: "当前真实信源",
     source: "信源",
     tier: "等级",
@@ -1800,7 +2286,7 @@ const UI_TEXT = {
     feedbackTitle: "标题",
     feedbackContent: "内容",
     feedbackEmail: "邮箱（选填）",
-    submitFeedback: "提交反馈"
+    submitFeedback: "提交反馈",
   },
   en: {
     home: "Home",
@@ -1820,13 +2306,16 @@ const UI_TEXT = {
     closeDetail: "Close detail",
     closeFeedback: "Close feedback",
     whyItMatters: "Why it matters",
-    drawerWhyFallback: "The captured material is not enough for a stronger impact judgement yet. Open the source to verify.",
+    drawerWhyFallback:
+      "The captured material is not enough for a stronger impact judgement yet. Open the source to verify.",
     fullSummary: "Full brief",
-    drawerDetailFallback: "This public feed only exposed a title, summary, or link. Open the source for the complete article.",
+    drawerDetailFallback:
+      "This public feed only exposed a title, summary, or link. Open the source for the complete article.",
     sourceJudgement: "Source judgement",
     eventTimeline: "Timeline",
     capturedContent: "Captured content",
-    sourceSnippetEmpty: "This source did not provide a useful excerpt beyond the title. Open it for the full text.",
+    sourceSnippetEmpty:
+      "This source did not provide a useful excerpt beyond the title. Open it for the full text.",
     openThisSource: "Open this source",
     sourceCount: "{count} sources",
     highTrustCount: "{count} high-trust",
@@ -1857,13 +2346,19 @@ const UI_TEXT = {
     watching: "Watch",
     steady: "Steady",
     briefGenerating: "The daily brief is being generated.",
-    aihotDisclosure: "{count} X items came through AIHOT aggregation. Titles and summaries may have been edited or translated; open the source for verification.",
-    aggregatorDisclosure: "This event includes aggregator material. Read the aggregate brief and original link together.",
+    aihotDisclosure:
+      "{count} X items came through AIHOT aggregation. Titles and summaries may have been edited or translated; open the source for verification.",
+    aggregatorDisclosure:
+      "This event includes aggregator material. Read the aggregate brief and original link together.",
     sourcesTitle: "Source Notes",
-    sourcesCaption: "Public sources currently connected, and how each type should be used.",
-    trustedSourceExplain: "Official blogs, research releases, social posts, and code releases are best for facts.",
-    verifiedSourceExplain: "Independent mentions across platforms reduce reliance on a single item.",
-    communitySourceExplain: "Communities, HN, YouTube, and media help measure spread, but still need verification.",
+    sourcesCaption:
+      "Public sources currently connected, and how each type should be used.",
+    trustedSourceExplain:
+      "Official blogs, research releases, social posts, and code releases are best for facts.",
+    verifiedSourceExplain:
+      "Independent mentions across platforms reduce reliance on a single item.",
+    communitySourceExplain:
+      "Communities, HN, YouTube, and media help measure spread, but still need verification.",
     activeSources: "Active Live Sources",
     source: "Source",
     tier: "Tier",
@@ -1889,12 +2384,13 @@ const UI_TEXT = {
     saving: "Saving...",
     feedbackSaved: "Received. Thanks for the feedback.",
     feedbackFailed: "Could not save. Try again later.",
-    feedbackCaption: "Tell us what Radar.Degotchi should improve. Title and content are required; email is optional.",
+    feedbackCaption:
+      "Tell us what Radar.Degotchi should improve. Title and content are required; email is optional.",
     feedbackTitle: "Title",
     feedbackContent: "Content",
     feedbackEmail: "Email (optional)",
-    submitFeedback: "Submit feedback"
-  }
+    submitFeedback: "Submit feedback",
+  },
 };
 
 function buildBriefFootnotes(stories) {
@@ -1902,7 +2398,12 @@ function buildBriefFootnotes(stories) {
   const seen = new Set();
   for (const story of stories) {
     const relatedItems = story.fullEvent?.relatedItems ?? [];
-    const sourceNameById = Object.fromEntries((story.fullEvent?.sources ?? []).map((source) => [source.id, source.name]));
+    const sourceNameById = Object.fromEntries(
+      (story.fullEvent?.sources ?? []).map((source) => [
+        source.id,
+        source.name,
+      ]),
+    );
     for (const item of relatedItems) {
       const url = item.url || "";
       const key = url || `${story.id}:${item.id}`;
@@ -1911,7 +2412,7 @@ function buildBriefFootnotes(stories) {
       items.push({
         label: sourceItemLabel(item, sourceNameById),
         context: sourceContextLabel(item, sourceNameById),
-        url
+        url,
       });
       if (items.length >= 12) return items;
     }
@@ -1936,7 +2437,9 @@ function pickDistinctText(candidates, blockers = [], maxLength = 180) {
     const text = cleanText(candidate, maxLength);
     const normalized = normalizeText(text);
     if (!normalized) continue;
-    const repeatsBlocker = normalizedBlockers.some((blocker) => isNearDuplicateKey(normalized, blocker));
+    const repeatsBlocker = normalizedBlockers.some((blocker) =>
+      isNearDuplicateKey(normalized, blocker),
+    );
     if (!repeatsBlocker) return text;
   }
   return "";
@@ -1945,19 +2448,28 @@ function pickDistinctText(candidates, blockers = [], maxLength = 180) {
 function isDuplicateText(value, blockers = []) {
   const normalized = normalizeText(value);
   if (!normalized) return true;
-  return blockers.map(normalizeText).filter(Boolean).some((blocker) => isNearDuplicateKey(normalized, blocker));
+  return blockers
+    .map(normalizeText)
+    .filter(Boolean)
+    .some((blocker) => isNearDuplicateKey(normalized, blocker));
 }
 
 function isNearDuplicateKey(a, b) {
   if (!a || !b) return false;
   const shorter = a.length <= b.length ? a : b;
   const longer = a.length > b.length ? a : b;
-  return a === b || longer.includes(shorter) || shorter.length / longer.length > 0.72 && longestCommonPrefixLength(a, b) / shorter.length > 0.72;
+  return (
+    a === b ||
+    longer.includes(shorter) ||
+    (shorter.length / longer.length > 0.72 &&
+      longestCommonPrefixLength(a, b) / shorter.length > 0.72)
+  );
 }
 
 function longestCommonPrefixLength(a, b) {
   let index = 0;
-  while (index < a.length && index < b.length && a[index] === b[index]) index += 1;
+  while (index < a.length && index < b.length && a[index] === b[index])
+    index += 1;
   return index;
 }
 
@@ -1965,7 +2477,8 @@ function editionNumberFromId(id) {
   const date = toValidDate(id);
   if (!date) return "000";
   const yearStart = Date.UTC(date.getUTCFullYear(), 0, 1);
-  const dayOfYear = Math.floor((date.getTime() - yearStart) / (24 * 60 * 60 * 1000)) + 1;
+  const dayOfYear =
+    Math.floor((date.getTime() - yearStart) / (24 * 60 * 60 * 1000)) + 1;
   return String(dayOfYear).padStart(3, "0");
 }
 
@@ -1977,7 +2490,7 @@ function formatNewspaperDate(value) {
     year: "numeric",
     month: "long",
     day: "numeric",
-    weekday: "long"
+    weekday: "long",
   }).format(date);
 }
 
@@ -1994,11 +2507,13 @@ function loadLanguage() {
 
 function loadReadState() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(READ_STATE_STORAGE_KEY) || "{}");
+    const parsed = JSON.parse(
+      localStorage.getItem(READ_STATE_STORAGE_KEY) || "{}",
+    );
     return {
       readIds: Array.isArray(parsed.readIds) ? parsed.readIds : [],
       lastReadEventId: parsed.lastReadEventId || "",
-      lastReadAt: parsed.lastReadAt || ""
+      lastReadAt: parsed.lastReadAt || "",
     };
   } catch {
     return { readIds: [], lastReadEventId: "", lastReadAt: "" };
@@ -2006,11 +2521,13 @@ function loadReadState() {
 }
 
 function markEventRead(current, eventId) {
-  const readIds = current.readIds.includes(eventId) ? current.readIds : [eventId, ...current.readIds].slice(0, 500);
+  const readIds = current.readIds.includes(eventId)
+    ? current.readIds
+    : [eventId, ...current.readIds].slice(0, 500);
   return {
     readIds,
     lastReadEventId: eventId,
-    lastReadAt: new Date().toISOString()
+    lastReadAt: new Date().toISOString(),
   };
 }
 
@@ -2027,7 +2544,9 @@ function copyTextFallback(text) {
 }
 
 function getBrowserLocale() {
-  return typeof navigator === "undefined" ? "zh-CN" : navigator.language || "zh-CN";
+  return typeof navigator === "undefined"
+    ? "zh-CN"
+    : navigator.language || "zh-CN";
 }
 
 function getBrowserTimeZone() {
@@ -2043,7 +2562,7 @@ function browserTimeZoneLabel(value = new Date()) {
   try {
     const offsetPart = new Intl.DateTimeFormat("en-US", {
       timeZone,
-      timeZoneName: "shortOffset"
+      timeZoneName: "shortOffset",
     })
       .formatToParts(new Date(value))
       .find((part) => part.type === "timeZoneName")?.value;
@@ -2068,7 +2587,7 @@ function formatTime(value) {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    hour12: false
+    hour12: false,
   }).format(date);
 }
 
@@ -2081,7 +2600,7 @@ function formatDate(value) {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    hour12: false
+    hour12: false,
   }).format(date);
 }
 
@@ -2092,7 +2611,7 @@ function formatClock(value) {
     timeZone: getBrowserTimeZone(),
     hour: "2-digit",
     minute: "2-digit",
-    hour12: false
+    hour12: false,
   }).format(date);
 }
 
@@ -2103,7 +2622,7 @@ function formatDayKey(value) {
     timeZone: getBrowserTimeZone(),
     year: "numeric",
     month: "2-digit",
-    day: "2-digit"
+    day: "2-digit",
   }).format(date);
 }
 
@@ -2112,12 +2631,12 @@ function formatDayLabel(value) {
   if (!date) return "时间未知";
   const weekday = new Intl.DateTimeFormat("en-US", {
     timeZone: getBrowserTimeZone(),
-    weekday: "short"
+    weekday: "short",
   }).format(date);
   const monthDay = new Intl.DateTimeFormat("en-US", {
     timeZone: getBrowserTimeZone(),
     month: "2-digit",
-    day: "2-digit"
+    day: "2-digit",
   }).format(date);
   return `${weekday}, ${monthDay}`;
 }
@@ -2127,9 +2646,12 @@ function formatUpdateLabel(value) {
   if (!date) return "时间未知";
   const diffMs = Date.now() - date.getTime();
   if (diffMs >= 0 && diffMs < 60 * 1000) return "刚刚";
-  if (diffMs >= 0 && diffMs < 60 * 60 * 1000) return `${Math.max(1, Math.floor(diffMs / 60000))} 分钟前`;
-  if (diffMs >= 0 && diffMs < 24 * 60 * 60 * 1000) return `${Math.max(1, Math.floor(diffMs / 36e5))} 小时前`;
-  if (diffMs >= 0 && diffMs < 48 * 60 * 60 * 1000) return `昨天 ${formatClock(value)}`;
+  if (diffMs >= 0 && diffMs < 60 * 60 * 1000)
+    return `${Math.max(1, Math.floor(diffMs / 60000))} 分钟前`;
+  if (diffMs >= 0 && diffMs < 24 * 60 * 60 * 1000)
+    return `${Math.max(1, Math.floor(diffMs / 36e5))} 小时前`;
+  if (diffMs >= 0 && diffMs < 48 * 60 * 60 * 1000)
+    return `昨天 ${formatClock(value)}`;
   return formatTime(value);
 }
 
