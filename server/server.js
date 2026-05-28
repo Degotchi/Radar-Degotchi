@@ -172,7 +172,7 @@ if (existsSync(clientIndexPath)) {
 
 async function getSnapshot() {
   if (snapshotCache) return snapshotCache;
-  return refreshSnapshot({ allowAi: true, reason: "request" });
+  return refreshSnapshot({ reason: "request" });
 }
 
 async function refreshSnapshot({ force = false, allowAi = false, reason = "auto" } = {}) {
@@ -259,9 +259,11 @@ function getLlmConfig() {
 app.listen(port, () => {
   console.log(`AI Signal Cockpit API listening on http://localhost:${port}`);
   startAutoRefresh();
-  refreshSnapshot({ force: true, allowAi: true, reason: "startup" }).catch((error) => {
-    console.error("Initial refresh failed:", error.message);
-  });
+  refreshSnapshot({ force: true, reason: "startup-fast" })
+    .then(() => refreshSnapshot({ force: true, allowAi: true, reason: "startup" }))
+    .catch((error) => {
+      console.error("Initial refresh failed:", error.message);
+    });
 });
 
 function startAutoRefresh() {
