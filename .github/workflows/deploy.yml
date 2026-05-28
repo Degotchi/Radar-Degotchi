@@ -93,7 +93,9 @@ jobs:
           SF_MODEL: ${{ secrets.SF_MODEL }}
         run: |
           set -euo pipefail
-          SSH_OPTS="-i ~/.ssh/radar_deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -p $DEPLOY_PORT"
+          SSH_BASE_OPTS="-i ~/.ssh/radar_deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20"
+          SSH_OPTS="$SSH_BASE_OPTS -p $DEPLOY_PORT"
+          SCP_OPTS="$SSH_BASE_OPTS -P $DEPLOY_PORT"
           tmp_env="$(mktemp)"
           chmod 600 "$tmp_env"
           {
@@ -110,11 +112,19 @@ jobs:
             fi
             printf 'LLM_MODEL=%s\n' "$runtime_model"
           } > "$tmp_env"
+          uploaded=0
           for attempt in 1 2 3; do
-            scp $SSH_OPTS "$tmp_env" "$DEPLOY_USER@$DEPLOY_HOST:/opt/radar/.env" && break
+            if scp $SCP_OPTS "$tmp_env" "$DEPLOY_USER@$DEPLOY_HOST:/opt/radar/.env"; then
+              uploaded=1
+              break
+            fi
             sleep 8
           done
           rm -f "$tmp_env"
+          if [ "$uploaded" -ne 1 ]; then
+            echo "failed to upload runtime env" >&2
+            exit 1
+          fi
 
       - name: Restart service
         env:
@@ -124,8 +134,9 @@ jobs:
         run: |
           set -euo pipefail
           SSH_OPTS="-i ~/.ssh/radar_deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -p $DEPLOY_PORT"
+          restarted=0
           for attempt in 1 2 3 4 5; do
-            ssh $SSH_OPTS "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE' && break
+            if ssh $SSH_OPTS "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE'
             set -euo pipefail
             cd /opt/radar
             npm ci --omit=dev
@@ -205,5 +216,13 @@ jobs:
             fi
             curl -fsS http://127.0.0.1:8787/api/health | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{const h=JSON.parse(s); if(!h.modelConfigured){console.error('modelConfigured=false'); process.exit(1)} console.log('health ok: modelConfigured=true')})"
           REMOTE
+            then
+              restarted=1
+              break
+            fi
             sleep 8
           done
+          if [ "$restarted" -ne 1 ]; then
+            echo "failed to restart radar service" >&2
+            exit 1
+          fi
