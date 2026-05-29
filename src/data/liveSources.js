@@ -10,6 +10,8 @@ const REQUEST_TIMEOUT_MS = 16000;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_FETCH_ATTEMPTS = 3;
 const LIVE_SOURCE_CONCURRENCY = Number(process.env.LIVE_SOURCE_CONCURRENCY || 3);
+const RAW_ITEM_LIMIT = Math.max(220, Number(process.env.RAW_ITEM_LIMIT || 600));
+const EVENT_LIMIT = Math.max(80, Number(process.env.EVENT_LIMIT || 240));
 
 let cachedDataset = null;
 let pendingDataset = null;
@@ -360,8 +362,8 @@ export async function fetchLiveData({ force = false } = {}) {
   const results = await mapWithConcurrency(liveSourceConfigs, LIVE_SOURCE_CONCURRENCY, fetchSource);
   const successfulResults = results.filter((result) => result.ok && result.items.length);
   const sources = results.map((result) => toRuntimeSource(result.config, result));
-  const rawItems = dedupeRawItems(successfulResults.flatMap((result) => result.items)).slice(0, 220);
-  const events = buildEventsFromRawItems(rawItems, sources).slice(0, 80);
+  const rawItems = dedupeRawItems(successfulResults.flatMap((result) => result.items)).slice(0, RAW_ITEM_LIMIT);
+  const events = buildEventsFromRawItems(rawItems, sources).slice(0, EVENT_LIMIT);
   const finishedAt = new Date().toISOString();
   const failedCount = results.length - successfulResults.length;
 

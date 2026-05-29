@@ -2,7 +2,8 @@ import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   events as mockEvents,
@@ -23,11 +24,17 @@ dotenv.config();
 const app = express();
 const port = Number(process.env.PORT || 8787);
 const AUTO_REFRESH_MS = Number(process.env.AUTO_REFRESH_MS || 60 * 60 * 1000);
+const EVENT_HISTORY_LIMIT = Math.max(60, Number(process.env.EVENT_HISTORY_LIMIT || 400));
+const EVENT_PAGE_SIZE = Math.max(10, Number(process.env.EVENT_PAGE_SIZE || 20));
+const EVENT_HISTORY_PATH = process.env.EVENT_HISTORY_PATH || join(process.cwd(), ".cache", "event-history.json");
 
 let snapshotCache = null;
 let snapshotRefreshPromise = null;
 let snapshotRefreshMeta = null;
 let refreshSequence = 0;
+const eventHistory = [];
+let eventHistoryLoaded = false;
+let eventHistorySavePromise = Promise.resolve();
 const clientDistPath = fileURLToPath(new URL("../dist", import.meta.url));
 const clientIndexPath = join(clientDistPath, "index.html");
 
@@ -53,6 +60,31 @@ app.get("/api/snapshot", async (_req, res) => {
   } catch (error) {
     res.json(createFallbackSnapshot(error));
   }
+});
+
+app.get("/api/events", async (req, res) => {
+  const cursor = Math.max(0, Number.parseInt(req.query.cursor || "0", 10) || 0);
+  const take = Math.max(10, Math.min(120, Number.parseInt(req.query.take || String(EVENT_PAGE_SIZE), 10) || EVENT_PAGE_SIZE));
+  const category = String(req.query.category || "").trim();
+  const query = String(req.query.q || "").trim().toLowerCase();
+  const history = await getLiveEventHistorySnapshot();
+
+  const filtered = filterEventsForTimeline(history, {
+    category,
+    query,
+  });
+  const slice = filtered.slice(cursor, cursor + take);
+  const nextCursor = cursor + take < filtered.length ? cursor + take : null;
+  const events = slice.map((event) => eventToApiEvent(event));
+
+  res.json({
+    ok: true,
+    cursor,
+    nextCursor,
+    take,
+    total: filtered.length,
+    events
+  });
 });
 
 app.post("/api/jobs/recompute", async (_req, res) => {
@@ -208,10 +240,12 @@ async function createSnapshot({ force = false, allowAi = false } = {}) {
     diagnostics: dataset.diagnostics
   };
   const configuredLimit = process.env.AI_ENRICHMENT_LIMIT ? Number(process.env.AI_ENRICHMENT_LIMIT) : snapshot.events.length;
-  return applyEditorialEnrichment(snapshot, {
+  const enriched = await applyEditorialEnrichment(snapshot, {
     allowLlm: allowAi,
     limit: Number.isFinite(configuredLimit) && configuredLimit > 0 ? configuredLimit : snapshot.events.length
   });
+  appendToHistory(enriched.events);
+  return enriched;
 }
 
 function withRefreshPolicy(snapshot, reason) {
@@ -226,6 +260,132 @@ function withRefreshPolicy(snapshot, reason) {
       dailyBriefSchedule: "每日 04:00 汇总过去 24 小时"
     }
   };
+}
+
+async function getLiveEventHistorySnapshot() {
+  await hydrateEventHistory();
+  if (eventHistory.length > 0) {
+    return eventHistory;
+  }
+  const fallbackSnapshot = await getSnapshot();
+  appendToHistory(fallbackSnapshot.events ?? []);
+  return eventHistory;
+}
+
+function appendToHistory(events = []) {
+  if (!Array.isArray(events) || events.length === 0) return;
+  const byId = new Map();
+  for (const event of eventHistory) {
+    if (event?.id) byId.set(event.id, event);
+  }
+  for (const event of events) {
+    if (!event?.id) continue;
+    byId.set(event.id, {
+      ...byId.get(event.id),
+      ...event,
+      lastSeenAt: event.lastSeenAt || event.generatedAt || new Date().toISOString(),
+      publishedAt: event.publishedAt || event.lastSeenAt || event.generatedAt || new Date().toISOString(),
+    });
+  }
+  const merged = [...byId.values()].sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime());
+  eventHistory.length = 0;
+  eventHistory.push(...merged.slice(0, EVENT_HISTORY_LIMIT));
+  void persistEventHistory();
+}
+
+async function hydrateEventHistory() {
+  if (eventHistoryLoaded) return;
+  eventHistoryLoaded = true;
+  try {
+    const raw = await readFile(EVENT_HISTORY_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    const persistedEvents = Array.isArray(parsed?.events) ? parsed.events : [];
+    eventHistory.push(...persistedEvents.slice(0, EVENT_HISTORY_LIMIT));
+  } catch {
+    // First run or invalid cache; start from fresh in-memory history.
+  }
+}
+
+function persistEventHistory() {
+  const payload = {
+    updatedAt: new Date().toISOString(),
+    count: eventHistory.length,
+    events: eventHistory.slice(0, EVENT_HISTORY_LIMIT)
+  };
+  eventHistorySavePromise = eventHistorySavePromise
+    .catch(() => {})
+    .then(async () => {
+      await mkdir(dirname(EVENT_HISTORY_PATH), { recursive: true });
+      await writeFile(EVENT_HISTORY_PATH, `${JSON.stringify(payload, null, 2)}\n`);
+    })
+    .catch(() => {});
+  return eventHistorySavePromise;
+}
+
+function eventToApiEvent(event) {
+  return {
+    id: event.id,
+    title: event.title,
+    summary: event.summary,
+    category: event.category,
+    createdAt: event.createdAt,
+    publishedAt: event.publishedAt,
+    lastSeenAt: event.lastSeenAt || event.generatedAt,
+    trend: event.trend,
+    status: event.status,
+    score: event.score,
+    selectedScore: event.selectedScore,
+    selected: event.selected,
+    selectedReason: event.selectedReason,
+    impactLevel: event.impactLevel,
+    entityText: event.entityText,
+    whyItMatters: event.whyItMatters,
+    editorSummary: event.editorSummary,
+    editorInsight: event.editorInsight,
+    editorDetail: event.editorDetail,
+    editorBullets: event.editorBullets,
+    editorConfidence: event.editorConfidence,
+    sourceCount: event.sourceCount,
+    highTrustSourceCount: event.highTrustSourceCount,
+    sources: event.sources,
+    timeline: event.timeline,
+    relatedItems: event.relatedItems,
+    entities: event.entities,
+    sourceIds: event.sourceIds,
+    generatedAt: event.generatedAt,
+    translations: event.translations
+  };
+}
+
+function filterEventsForTimeline(events, { category = "", query = "" } = {}) {
+  return events.filter((event) => {
+    const matchesCategory = !category || category === "全部" || event.category === category ||
+      (category === "正在升温" && event.trend === "rising") ||
+      (category === "持续观察" && (event.status === "watch" || event.trend === "volatile"));
+    if (!matchesCategory) return false;
+
+    const keyword = [
+      event.title,
+      event.editorSummary ?? event.summary,
+      event.editorInsight,
+      event.editorDetail,
+      ...(event.editorBullets ?? []),
+      event.translations?.zh?.title,
+      event.translations?.zh?.summary,
+      event.translations?.zh?.insight,
+      event.translations?.en?.title,
+      event.translations?.en?.summary,
+      event.translations?.en?.insight,
+      ...(event.entities ?? []),
+      ...(event.relatedItems ?? []).flatMap((item) => [item.title, item.summary, item.originalSource]),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    const matchesQuery = !query || keyword.includes(query);
+    return matchesQuery;
+  });
 }
 
 function createFallbackSnapshot(error) {

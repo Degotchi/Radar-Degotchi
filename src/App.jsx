@@ -13,6 +13,7 @@ import {
 import { motion, useScroll, useSpring, useTransform } from "motion/react";
 import {
   Fragment,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -101,7 +102,17 @@ export default function App() {
   const [language, setLanguage] = useState(loadLanguage);
   const [readState, setReadState] = useState(loadReadState);
   const [dailies, setDailies] = useState([]);
+  const [feedEvents, setFeedEvents] = useState([]);
+  const [feedTotal, setFeedTotal] = useState(0);
+  const [feedHasMore, setFeedHasMore] = useState(false);
+  const [feedLoading, setFeedLoading] = useState(false);
+  const feedRequestSeqRef = useRef(0);
+  const feedCursorRef = useRef(0);
+  const feedHasMoreRef = useRef(false);
+  const feedLoadingRef = useRef(false);
   const sessionLastReadEventIdRef = useRef(readState.lastReadEventId);
+  const activeView = viewFromPath(currentPath);
+  const activeBriefKey = briefKeyFromPath(currentPath);
 
   useEffect(() => {
     let cancelled = false;
@@ -154,6 +165,84 @@ export default function App() {
     document.documentElement.lang = language === "en" ? "en" : "zh-CN";
   }, [language]);
 
+  const loadFeedPage = useCallback(async ({
+    reset = false,
+    silent = false,
+    cursorOverride,
+  } = {}) => {
+    const requestId = feedRequestSeqRef.current + 1;
+    feedRequestSeqRef.current = requestId;
+    const cursor = reset
+      ? 0
+      : Number.isFinite(cursorOverride)
+        ? cursorOverride
+        : feedCursorRef.current;
+    const params = new URLSearchParams({
+      cursor: String(Math.max(0, cursor)),
+      take: String(FEED_BATCH_SIZE),
+    });
+
+    const trimmedQuery = query.trim();
+    const normalizedFilter = briefFilter === "全部" ? "" : briefFilter;
+    if (trimmedQuery) params.set("q", trimmedQuery);
+    if (normalizedFilter) params.set("category", normalizedFilter);
+
+    feedLoadingRef.current = true;
+    setFeedLoading(true);
+    try {
+      const response = await fetch(`/api/events?${params.toString()}`);
+      const data = await response.json();
+      if (feedRequestSeqRef.current !== requestId) return;
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "fetch_events_failed");
+      }
+
+      const incomingEvents = Array.isArray(data.events) ? data.events : [];
+      const nextCursorValue =
+        typeof data.nextCursor === "number" ? data.nextCursor : incomingEvents.length;
+      const hasMoreValue = Boolean(data.nextCursor != null);
+
+      feedCursorRef.current = nextCursorValue;
+      feedHasMoreRef.current = hasMoreValue;
+      setFeedTotal(Number(data.total) || incomingEvents.length);
+      setFeedHasMore(hasMoreValue);
+
+      setFeedEvents((current) => {
+        if (reset) return incomingEvents;
+        const byId = new Map();
+        current.forEach((event) => {
+          if (event?.id) byId.set(event.id, event);
+        });
+        incomingEvents.forEach((event) => {
+          if (event?.id) byId.set(event.id, event);
+        });
+        return [...byId.values()];
+      });
+    } catch {
+      if (!silent) {
+        setToast("事件流加载失败，先按已加载内容浏览");
+        window.setTimeout(() => setToast(""), 2400);
+      }
+    } finally {
+      if (feedRequestSeqRef.current === requestId) {
+        feedLoadingRef.current = false;
+        setFeedLoading(false);
+      }
+    }
+  }, [briefFilter, query]);
+
+  const resetFeed = useCallback(async () => {
+    await loadFeedPage({ reset: true });
+  }, [loadFeedPage]);
+
+  const loadMoreFeed = useCallback(() => {
+    if (!feedHasMoreRef.current || feedLoadingRef.current) return;
+    loadFeedPage({
+      reset: false,
+      cursorOverride: feedCursorRef.current,
+    });
+  }, [loadFeedPage]);
+
   useEffect(() => {
     let cancelled = false;
     async function refreshQuietly() {
@@ -170,6 +259,9 @@ export default function App() {
         setSnapshot(snapshotData);
         if (Array.isArray(dailiesData.articles))
           setDailies(dailiesData.articles);
+        if (activeView === "home") {
+          await loadFeedPage({ reset: true, silent: true });
+        }
       } catch {
         if (!cancelled) setToast("自动刷新失败，继续显示上一批内容");
         window.setTimeout(() => setToast(""), 2400);
@@ -187,7 +279,7 @@ export default function App() {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [snapshot.refreshPolicy?.intervalMs]);
+  }, [activeView, loadFeedPage, snapshot.refreshPolicy?.intervalMs]);
 
   useEffect(() => {
     function handlePopState() {
@@ -207,44 +299,11 @@ export default function App() {
 
   const selectedEvent = useMemo(() => {
     return (
-      snapshot.events.find((event) => event.id === selectedEventId) ?? null
+      feedEvents.find((event) => event.id === selectedEventId) ??
+      snapshot.events.find((event) => event.id === selectedEventId) ??
+      null
     );
-  }, [selectedEventId, snapshot.events]);
-
-  const filteredEvents = useMemo(() => {
-    return snapshot.events.filter((event) => {
-      const keyword = [
-        event.title,
-        event.editorSummary ?? event.summary,
-        event.editorInsight,
-        event.editorDetail,
-        ...(event.editorBullets ?? []),
-        event.translations?.zh?.title,
-        event.translations?.zh?.summary,
-        event.translations?.zh?.insight,
-        event.translations?.en?.title,
-        event.translations?.en?.summary,
-        event.translations?.en?.insight,
-        ...event.entities,
-        ...(event.relatedItems ?? []).flatMap((item) => [
-          item.title,
-          item.summary,
-          item.originalSource,
-        ]),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      const matchesQuery = !query || keyword.includes(query.toLowerCase());
-      const matchesFilter =
-        briefFilter === "全部" ||
-        event.category === briefFilter ||
-        (briefFilter === "正在升温" && event.trend === "rising") ||
-        (briefFilter === "持续观察" &&
-          (event.status === "watch" || event.trend === "volatile"));
-      return matchesQuery && matchesFilter;
-    });
-  }, [snapshot.events, query, briefFilter]);
+  }, [selectedEventId, feedEvents, snapshot.events]);
 
   async function runRecompute() {
     setToast("正在抓取真实信源并重新聚类...");
@@ -256,6 +315,9 @@ export default function App() {
       const dailiesData = await dailiesResponse.json();
       if (Array.isArray(dailiesData.articles)) setDailies(dailiesData.articles);
       setToast("已基于真实信源重新生成首页简报和事件排序");
+      if (activeView === "home") {
+        await loadFeedPage({ reset: true });
+      }
     } catch {
       setToast("本地 API 暂不可用，首页保留最后一次数据");
     }
@@ -292,8 +354,17 @@ export default function App() {
     }
   }
 
-  const activeView = viewFromPath(currentPath);
-  const activeBriefKey = briefKeyFromPath(currentPath);
+  useEffect(() => {
+    if (activeView !== "home") return;
+
+    const timer = window.setTimeout(() => {
+      resetFeed();
+    }, 200);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [activeView, briefFilter, query, resetFeed]);
 
   useEffect(() => {
     if (
@@ -347,7 +418,11 @@ export default function App() {
       {activeView === "home" && (
         <HomePage
           snapshot={snapshot}
-          events={filteredEvents}
+          events={feedEvents}
+          total={feedTotal}
+          hasMore={feedHasMore}
+          loading={feedLoading}
+          onLoadMore={loadMoreFeed}
           briefFilter={briefFilter}
           setBriefFilter={setBriefFilter}
           onOpenEvent={openEvent}
@@ -611,6 +686,10 @@ function handleRouteClick(event, view, navigateTo) {
 function HomePage({
   snapshot,
   events,
+  total,
+  hasMore,
+  loading,
+  onLoadMore,
   briefFilter,
   setBriefFilter,
   onOpenEvent,
@@ -620,7 +699,6 @@ function HomePage({
 }) {
   const feedTopRef = useRef(null);
   const loadMoreRef = useRef(null);
-  const [visibleCount, setVisibleCount] = useState(FEED_BATCH_SIZE);
   const categories = [
     "全部",
     "正在升温",
@@ -633,26 +711,24 @@ function HomePage({
         new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime(),
     );
   }, [events]);
-  const loadedEvents = orderedEvents.slice(0, visibleCount);
-  const visibleEnd = Math.min(visibleCount, orderedEvents.length);
-  const hasMoreEvents = visibleEnd < orderedEvents.length;
+  const loadedEvents = orderedEvents;
+  const hasMoreEvents = hasMore && orderedEvents.length < total;
 
   useEffect(() => {
-    if (!hasMoreEvents || !loadMoreRef.current) return undefined;
+    if (!hasMoreEvents || loading || !loadMoreRef.current) return undefined;
+    if (!onLoadMore) return undefined;
 
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries[0]?.isIntersecting) return;
-        setVisibleCount((count) =>
-          Math.min(count + FEED_BATCH_SIZE, orderedEvents.length),
-        );
+        onLoadMore();
       },
       { rootMargin: "360px 0px 520px" },
     );
 
     observer.observe(loadMoreRef.current);
     return () => observer.disconnect();
-  }, [orderedEvents.length, hasMoreEvents]);
+  }, [hasMoreEvents, loading, onLoadMore, orderedEvents.length]);
 
   function scrollFeedToTop() {
     const element = feedTopRef.current;
@@ -663,7 +739,6 @@ function HomePage({
 
   function handleFilterChange(category) {
     setBriefFilter(category);
-    setVisibleCount(FEED_BATCH_SIZE);
     window.requestAnimationFrame(scrollFeedToTop);
   }
 
@@ -699,9 +774,10 @@ function HomePage({
           <FeedLoadMore
             loadMoreRef={loadMoreRef}
             hasMore={hasMoreEvents}
-            visibleCount={visibleEnd}
-            total={orderedEvents.length}
+            visibleCount={events.length}
+            total={total}
             language={language}
+            loading={loading}
           />
         </section>
       </section>
@@ -803,8 +879,18 @@ function LastReadMarker() {
   );
 }
 
-function FeedLoadMore({ loadMoreRef, hasMore, visibleCount, total, language }) {
-  if (!total) return null;
+function FeedLoadMore({
+  loadMoreRef,
+  hasMore,
+  visibleCount,
+  total,
+  loading,
+  language,
+}) {
+  if (!total && !loading && !hasMore) return null;
+  if (loading && !hasMore && !visibleCount) {
+    return <div className="feed-load-more done">{t(language, "loadingFeed")}</div>;
+  }
   return (
     <div
       ref={hasMore ? loadMoreRef : null}
@@ -2197,6 +2283,7 @@ const UI_TEXT = {
     brandSubline: "一份面向普通读者的 AI 科技报纸",
     searchPlaceholder: "检索报纸库：公司、模型、事件",
     emptyFeed: "没有匹配到事件，换个关键词试试。",
+    loadingFeed: "正在加载中...",
     loadedCount: "已显示 {visibleCount} / {total} 条",
     loadedAll: "已显示全部 {total} 条",
     scrollMore: "继续下滑加载下一批 20 条",
@@ -2297,6 +2384,7 @@ const UI_TEXT = {
     brandSubline: "An AI technology paper for everyday readers",
     searchPlaceholder: "Search companies, models, events",
     emptyFeed: "No matching events. Try another keyword.",
+    loadingFeed: "Loading...",
     loadedCount: "Showing {visibleCount} / {total}",
     loadedAll: "Showing all {total}",
     scrollMore: "Scroll for the next 20 items",
